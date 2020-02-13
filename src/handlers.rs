@@ -1,4 +1,4 @@
-use crate::services::{AuthRequestInfo, AuthService};
+use crate::services::{AuthConfirmInfo, AuthConfirmService, AuthRequestInfo, AuthService};
 use anyhow::bail;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -51,6 +51,40 @@ pub async fn handle_start_auth_request(
         &["openid"],
         &token,
     )?)
+}
+
+pub async fn handle_oauth_callback(
+    code: String,
+    state: String,
+    auth_service: Arc<dyn AuthService>,
+    auth_confirm_service: Arc<dyn AuthConfirmService>,
+) -> Result<impl warp::Reply, anyhow::Error> {
+    let auth_req = auth_service.token_to_request(&state).await?;
+
+    let confirm_info = AuthConfirmInfo {
+        code,
+        challenge: auth_req.challenge.clone(),
+    };
+
+    let token = auth_confirm_service.confirm_to_token(confirm_info).await?;
+
+    let mut local_redirect_url = Url::parse(&auth_req.local_redirect)?;
+    local_redirect_url
+        .query_pairs_mut()
+        .clear()
+        .append_pair("token", &token);
+
+    Ok(warp::redirect::temporary(warp::http::Uri::from(
+        local_redirect_url.into_string().parse()?,
+    )))
+}
+
+pub async fn handle_confirm(
+    token: String,
+    verifier: String,
+    auth_confirm_service: Arc<dyn AuthConfirmService>,
+) -> Result<impl warp::Reply, anyhow::Error> {
+    Ok("Hello, World!")
 }
 
 fn create_oauth_code_request_url(
