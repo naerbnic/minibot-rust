@@ -1,0 +1,21 @@
+[package]
+authors = ["Brian Chin <brian.chin@gmail.com>"]
+edition = "2018"
+name = "minibot"
+version = "0.1.0"
+[dependencies]
+anyhow = "*"
+async-trait = "*"
+serde_derive = "*"
+thiserror = "*"
+url = "*"
+url_serde = "*"
+warp = "*"
+
+[dependencies.serde]
+features = ["derive"]
+version = "*"
+
+[dependencies.tokio]
+features = ["full"]
+version = "*"
