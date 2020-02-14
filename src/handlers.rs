@@ -155,3 +155,32 @@ fn create_oauth_code_request_url(
 
     Ok(authz_url.to_string())
 }
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct RefreshResponse {
+    pub access_token: String,
+    pub refresh_token: String,
+    pub scope: Vec<String>,
+}
+
+pub async fn refresh_oauth_token(
+    refresh_token: &str,
+    client: &reqwest::Client,
+    oauth_config: &OAuthConfig,
+) -> Result<RefreshResponse, anyhow::Error> {
+    let resp_text = client
+        .post(&oauth_config.provider.token_endpoint)
+        .query(&[
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token),
+            ("client_id", &*oauth_config.client.client_id),
+            ("client_secret", &*oauth_config.client.client_secret),
+        ])
+        .send()
+        .await?
+        .text()
+        .await?;
+
+
+    Ok(serde_json::from_str::<RefreshResponse>(&resp_text)?)
+}
