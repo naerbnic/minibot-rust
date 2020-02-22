@@ -3,6 +3,7 @@ authors = ["Brian Chin <brian.chin@gmail.com>"]
 edition = "2018"
 name = "minibot"
 version = "0.1.0"
+
 [dependencies]
 anyhow = "*"
 async-trait = "*"
@@ -16,6 +17,7 @@ sodiumoxide = "0.2.5"
 reqwest = "0.10.1"
 serde_json = "1.0.48"
 xdg = "2.2.0"
+devsecrets = { git = "ssh://git@github.com:/naerbnic/devsecrets.git", version = "0.1.0-dev1" }
 
 [dependencies.serde]
 features = ["derive"]
