@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::sync::Arc;
 
 /// Info stored between the post to the minibot auth exchange start and the
@@ -15,18 +15,19 @@ pub struct AuthRequestInfo {
 
 /// A service that stores/converts `AuthRequestInfo` to and from a string token.
 #[async_trait]
-pub trait AuthService: Sync {
-    /// Return a token for the given request info. This token must be a url-safe
-    /// string. `self.token_to_request()` must return the same AuthRequestInfo
-    /// value.
-    async fn request_to_token(&self, req: AuthRequestInfo) -> Result<String, anyhow::Error>;
+pub trait TokenService<T>: Sync {
+    /// Return a token for the given info value. This token must be a url-safe
+    /// string. `self.from_token()` must return the same value.
+    async fn to_token(&self, value: T) -> Result<String, anyhow::Error>;
 
-    /// Return an AuthRequestInfo value for a given token.
+    /// Return a value of type T for a given token.
     /// 
     /// A real implementation must ensure that the token has not been modified
     /// externally, or return an error otherwise.
-    async fn token_to_request(&self, token: &str) -> Result<AuthRequestInfo, anyhow::Error>;
+    async fn from_token(&self, token: &str) -> Result<T, anyhow::Error>;
 }
+
+pub type AuthService = dyn TokenService<AuthRequestInfo>;
 
 /// Info stored between returning the token via redirect to the user and the
 /// user submitting the token to the account-create/bot-add endpoint with the
@@ -43,14 +44,24 @@ pub struct AuthConfirmInfo {
     pub challenge: String,
 }
 
-#[async_trait]
-pub trait AuthConfirmService: Sync {
-    async fn confirm_to_token(&self, req: AuthConfirmInfo) -> Result<String, anyhow::Error>;
-    async fn token_to_confirm(&self, token: &str) -> Result<AuthConfirmInfo, anyhow::Error>;
-}
+pub type AuthConfirmService = dyn TokenService<AuthConfirmInfo> + Sync;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct IdentityInfo {
     twitch_id: String,
     twitch_auth_token: String
+}
+
+pub struct SerdeTokenService<T> where T: Serialize + DeserializeOwned + Sync + Send {
+    data: std::marker::PhantomData<T>,
+}
+
+#[async_trait]
+impl<T: Serialize + DeserializeOwned + Sync + Send> TokenService<T> for SerdeTokenService<T> {
+    async fn to_token(&self, value: T) -> Result<String, anyhow::Error> {
+        Ok(serde_json::to_string(&value)?)
+    }
+    async fn from_token(&self, token: &str) -> Result<T, anyhow::Error> {
+        Ok(serde_json::from_str(token)?)
+    }
 }

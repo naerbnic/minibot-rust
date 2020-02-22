@@ -671,6 +671,7 @@ dependencies = [
  "url 2.1.1",
  "url_serde",
  "warp",
+ "xdg",
 ]
 
 [[package]]
@@ -1833,3 +1834,9 @@ checksum = "244c3741f4240ef46274860397c7c74e50eb23624996930e484c16679633a54c"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "xdg"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d089681aa106a86fade1b0128fb5daf07d5867a509ab036d99988dec80429a57"

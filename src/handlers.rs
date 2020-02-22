@@ -40,7 +40,7 @@ pub struct OAuthConfig {
 pub async fn handle_start_auth_request(
     redirect_uri: String,
     challenge: String,
-    auth_service: Arc<dyn AuthService>,
+    auth_service: Arc<AuthService>,
     oauth_config: Arc<OAuthConfig>,
 ) -> Result<impl warp::Reply, anyhow::Error> {
     let url = Url::parse(&*redirect_uri)?;
@@ -57,7 +57,7 @@ pub async fn handle_start_auth_request(
         challenge,
     };
 
-    let token = auth_service.request_to_token(auth_request).await?;
+    let token = auth_service.to_token(auth_request).await?;
 
     Ok(create_oauth_code_request_url(
         &*oauth_config,
@@ -69,17 +69,17 @@ pub async fn handle_start_auth_request(
 pub async fn handle_oauth_callback(
     code: String,
     state: String,
-    auth_service: Arc<dyn AuthService>,
-    auth_confirm_service: Arc<dyn AuthConfirmService>,
+    auth_service: Arc<AuthService>,
+    auth_confirm_service: Arc<AuthConfirmService>,
 ) -> Result<impl warp::Reply, anyhow::Error> {
-    let auth_req = auth_service.token_to_request(&state).await?;
+    let auth_req = auth_service.from_token(&state).await?;
 
     let confirm_info = AuthConfirmInfo {
         code,
         challenge: auth_req.challenge.clone(),
     };
 
-    let token = auth_confirm_service.confirm_to_token(confirm_info).await?;
+    let token = auth_confirm_service.to_token(confirm_info).await?;
 
     let mut local_redirect_url = Url::parse(&auth_req.local_redirect)?;
     local_redirect_url
@@ -105,10 +105,10 @@ pub struct TokenResponse {
 pub async fn handle_confirm(
     token: String,
     verifier: String,
-    auth_confirm_service: Arc<dyn AuthConfirmService>,
+    auth_confirm_service: Arc<AuthConfirmService>,
     oauth_config: Arc<OAuthConfig>,
 ) -> Result<TokenResponse, anyhow::Error> {
-    let auth_complete_info = auth_confirm_service.token_to_confirm(&token).await?;
+    let auth_complete_info = auth_confirm_service.from_token(&token).await?;
     crate::util::proof_key::verify_challenge(&auth_complete_info.challenge, &verifier)?;
     // Now that we're all verified, finish the key exchange
 
