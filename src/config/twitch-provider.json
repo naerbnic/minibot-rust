@@ -1,0 +1,5 @@
+{
+    "token_endpoint": "https://id.twitch.tv/oauth2/token",
+    "authz_endpoint": "https://id.twitch.tv/oauth2/authorize",
+    "jwks_keys_url": "https://id.twitch.tv/oauth2/keys"
+}

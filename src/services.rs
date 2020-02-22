@@ -1,6 +1,5 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use std::sync::Arc;
 
 /// Info stored between the post to the minibot auth exchange start and the
 /// OAuth2 redirect response.
