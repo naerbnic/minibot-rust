@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use std::sync::Arc;
 
 /// Info stored between the post to the minibot auth exchange start and the
 /// OAuth2 redirect response.
@@ -52,7 +53,15 @@ pub struct IdentityInfo {
 }
 
 pub struct SerdeTokenService<T> where T: Serialize + DeserializeOwned + Sync + Send {
-    data: std::marker::PhantomData<T>,
+    _data: std::marker::PhantomData<T>,
+}
+
+impl<T: Serialize + DeserializeOwned + Sync + Send + 'static> SerdeTokenService<T> {
+    pub fn new() -> Arc<dyn TokenService<T> + Sync> {
+        Arc::new(SerdeTokenService {
+            _data: std::marker::PhantomData{},
+        })
+    }
 }
 
 #[async_trait]
