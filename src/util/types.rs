@@ -71,10 +71,10 @@ mod oauth_scope_list {
             D: Deserializer<'de>,
         {
             let scopes_str: &str = Deserialize::deserialize(deserializer)?;
+            log::debug!("Deserialized scopes: {:?}", scopes_str);
             if scopes_str.is_empty() {
-                return Ok(OAuthScopeList::new_empty())
+                return Ok(OAuthScopeList::new_empty());
             }
-            eprintln!("Deserialized scopes: {}", scopes_str);
             let vec = scopes_str
                 .split(' ')
                 .map(str::to_string)
