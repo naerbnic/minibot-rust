@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 mod config;
+mod endpoints;
 mod filters;
 mod handlers;
 mod services;
@@ -9,6 +10,7 @@ mod util;
 use handlers::{OAuthClientInfo, OAuthConfig};
 use services::{AuthConfirmService, AuthService, SerdeTokenService};
 use std::sync::Arc;
+use warp::{filters::query::query, path, Filter};
 
 devsecrets::import_id!(DEVSECRETS_ID);
 
@@ -37,5 +39,19 @@ async fn main() {
     let auth_service: Arc<AuthService> = SerdeTokenService::new();
     let auth_confirm_service: Arc<AuthConfirmService> = SerdeTokenService::new();
 
+    let login_endpoint = path!("login").and(query::<()>());
+
+    let routes = endpoints::login::endpoint()
+        .map(|q| format!("Login: {:?}", q))
+        .boxed()
+        .or(endpoints::callback::endpoint()
+            .map(|q| format!("Callback: {:?}", q))
+            .boxed())
+        .or(endpoints::confirm::endpoint()
+            .map(|q| format!("Confirm: {:?}", q))
+            .boxed());
+
     println!("Twitch config: {:#?}", twitch_config);
+
+    warp::serve(routes).run(([127, 0, 0, 1], 5001)).await;
 }
