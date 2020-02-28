@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::sync::Arc;
 
 /// Info stored between the post to the minibot auth exchange start and the
@@ -21,13 +21,13 @@ pub trait TokenService<T>: Sync {
     async fn to_token(&self, value: T) -> Result<String, anyhow::Error>;
 
     /// Return a value of type T for a given token.
-    /// 
+    ///
     /// A real implementation must ensure that the token has not been modified
     /// externally, or return an error otherwise.
     async fn from_token(&self, token: &str) -> Result<T, anyhow::Error>;
 }
 
-pub type AuthService = dyn TokenService<AuthRequestInfo>;
+pub type AuthService = dyn TokenService<AuthRequestInfo> + Send + Sync;
 
 /// Info stored between returning the token via redirect to the user and the
 /// user submitting the token to the account-create/bot-add endpoint with the
@@ -44,22 +44,25 @@ pub struct AuthConfirmInfo {
     pub challenge: String,
 }
 
-pub type AuthConfirmService = dyn TokenService<AuthConfirmInfo> + Sync;
+pub type AuthConfirmService = dyn TokenService<AuthConfirmInfo> + Send + Sync;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct IdentityInfo {
     twitch_id: String,
-    twitch_auth_token: String
+    twitch_auth_token: String,
 }
 
-pub struct SerdeTokenService<T> where T: Serialize + DeserializeOwned + Sync + Send {
+pub struct SerdeTokenService<T>
+where
+    T: Serialize + DeserializeOwned + Sync + Send,
+{
     _data: std::marker::PhantomData<T>,
 }
 
 impl<T: Serialize + DeserializeOwned + Sync + Send + 'static> SerdeTokenService<T> {
-    pub fn new() -> Arc<dyn TokenService<T> + Sync> {
+    pub fn new() -> Arc<dyn TokenService<T> + Send + Sync> {
         Arc::new(SerdeTokenService {
-            _data: std::marker::PhantomData{},
+            _data: std::marker::PhantomData {},
         })
     }
 }
@@ -67,9 +70,15 @@ impl<T: Serialize + DeserializeOwned + Sync + Send + 'static> SerdeTokenService<
 #[async_trait]
 impl<T: Serialize + DeserializeOwned + Sync + Send> TokenService<T> for SerdeTokenService<T> {
     async fn to_token(&self, value: T) -> Result<String, anyhow::Error> {
-        Ok(serde_json::to_string(&value)?)
+        Ok(base64::encode_config(
+            &serde_json::to_string(&value)?,
+            base64::URL_SAFE_NO_PAD,
+        ))
     }
     async fn from_token(&self, token: &str) -> Result<T, anyhow::Error> {
-        Ok(serde_json::from_str(token)?)
+        Ok(serde_json::from_slice(&base64::decode_config(
+            token,
+            base64::URL_SAFE_NO_PAD,
+        )?)?)
     }
 }

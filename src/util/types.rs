@@ -35,6 +35,10 @@ mod oauth_scope_list {
             Some(OAuthScopeList(vec))
         }
 
+        fn new_empty() -> Self {
+            OAuthScopeList(vec![])
+        }
+
         /// Creates a new OAuthScopes from strings. This is intended to be used
         /// with literals. Panics if an invalid scope is passed in.
         fn new(scopes: impl IntoIterator<Item = impl AsRef<str>>) -> Self {
@@ -67,6 +71,10 @@ mod oauth_scope_list {
             D: Deserializer<'de>,
         {
             let scopes_str: &str = Deserialize::deserialize(deserializer)?;
+            if scopes_str.is_empty() {
+                return Ok(OAuthScopeList::new_empty())
+            }
+            eprintln!("Deserialized scopes: {}", scopes_str);
             let vec = scopes_str
                 .split(' ')
                 .map(str::to_string)

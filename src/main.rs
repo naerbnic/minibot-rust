@@ -8,9 +8,9 @@ mod services;
 mod util;
 
 use handlers::{OAuthClientInfo, OAuthConfig};
-use services::{AuthConfirmService, AuthService, SerdeTokenService};
+use services::{AuthService, SerdeTokenService};
 use std::sync::Arc;
-use warp::{filters::query::query, path, Filter};
+use warp::Filter;
 
 devsecrets::import_id!(DEVSECRETS_ID);
 
@@ -31,25 +31,22 @@ async fn main() {
         .into_value()
         .expect("Secret is readable");
 
-    let twitch_config = OAuthConfig {
+    let twitch_config = Arc::new(OAuthConfig {
         client: twitch_client,
         provider: config::TWITCH_PROVIDER.clone(),
-    };
+    });
 
     let auth_service: Arc<AuthService> = SerdeTokenService::new();
-    let auth_confirm_service: Arc<AuthConfirmService> = SerdeTokenService::new();
+    // let auth_confirm_service: Arc<AuthConfirmService> = SerdeTokenService::new();
 
-    let login_endpoint = path!("login").and(query::<()>());
-
-    let routes = endpoints::login::endpoint()
-        .map(|q| format!("Login: {:?}", q))
-        .boxed()
+    let routes = (endpoints::login::endpoint(twitch_config.clone(), auth_service.clone())
         .or(endpoints::callback::endpoint()
             .map(|q| format!("Callback: {:?}", q))
             .boxed())
         .or(endpoints::confirm::endpoint()
             .map(|q| format!("Confirm: {:?}", q))
-            .boxed());
+            .boxed()))
+    .with(warp::log("server"));
 
     println!("Twitch config: {:#?}", twitch_config);
 

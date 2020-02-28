@@ -59,11 +59,13 @@ pub async fn handle_start_auth_request(
 
     let token = auth_service.to_token(auth_request).await?;
 
-    Ok(create_oauth_code_request_url(
+    let redirect_uri = create_oauth_code_request_url(
         &*oauth_config,
-        &["openid"],
+        &["openid", "viewing_activity_read"],
         &token,
-    )?)
+    )?.parse::<warp::http::Uri>()?;
+
+    Ok(warp::redirect::temporary(redirect_uri))
 }
 
 pub async fn handle_oauth_callback(
@@ -180,7 +182,6 @@ pub async fn refresh_oauth_token(
         .await?
         .text()
         .await?;
-
 
     Ok(serde_json::from_str::<RefreshResponse>(&resp_text)?)
 }
