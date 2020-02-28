@@ -6,9 +6,10 @@ mod filters;
 mod handlers;
 mod services;
 mod util;
+mod client;
 
 use handlers::{OAuthClientInfo, OAuthConfig};
-use services::{AuthService, SerdeTokenService};
+use services::{AuthConfirmService, AuthService, SerdeTokenService};
 use std::sync::Arc;
 use warp::Filter;
 
@@ -37,12 +38,13 @@ async fn main() {
     });
 
     let auth_service: Arc<AuthService> = SerdeTokenService::new();
-    // let auth_confirm_service: Arc<AuthConfirmService> = SerdeTokenService::new();
+    let auth_confirm_service: Arc<AuthConfirmService> = SerdeTokenService::new();
 
     let routes = (endpoints::login::endpoint(twitch_config.clone(), auth_service.clone())
-        .or(endpoints::callback::endpoint()
-            .map(|q| format!("Callback: {:?}", q))
-            .boxed())
+        .or(endpoints::callback::endpoint(
+            auth_service.clone(),
+            auth_confirm_service.clone(),
+        ))
         .or(endpoints::confirm::endpoint()
             .map(|q| format!("Confirm: {:?}", q))
             .boxed()))

@@ -35,13 +35,19 @@ pub mod login {
                     oauth,
                 )
                 .map_err(|e| warp::reject::custom(Error(e)))
-            }).boxed()
+            })
+            .boxed()
     }
 }
 
 pub mod callback {
+    use crate::filters::cloned;
+    use crate::handlers::handle_oauth_callback;
+    use crate::services::{AuthConfirmService, AuthService};
     use crate::util::types::OAuthScopeList;
+    use futures::prelude::*;
     use serde::Deserialize;
+    use std::sync::Arc;
     use warp::{get, path, query, Filter, Rejection};
 
     #[derive(Deserialize, Debug)]
@@ -51,8 +57,24 @@ pub mod callback {
         state: String,
     }
 
-    pub fn endpoint() -> impl Filter<Extract = (Query,), Error = Rejection> {
-        path!("callback").and(get()).and(query::<Query>())
+    #[derive(Debug)]
+    pub struct Error(anyhow::Error);
+
+    impl warp::reject::Reject for Error {}
+
+    pub fn endpoint(
+        auth_service: Arc<AuthService>,
+        confirm_service: Arc<AuthConfirmService>,
+    ) -> impl Filter<Extract = impl warp::Reply, Error = Rejection> + Clone {
+        path!("callback")
+            .and(get())
+            .and(query::<Query>())
+            .and(cloned(auth_service))
+            .and(cloned(confirm_service))
+            .and_then(|q: Query, auth, confirm| {
+                handle_oauth_callback(q.code.clone(), q.state.clone(), auth, confirm)
+                    .map_err(|e| warp::reject::custom(Error(e)))
+            })
     }
 }
 
