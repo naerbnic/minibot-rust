@@ -6,11 +6,12 @@ pub mod login {
     use serde::Deserialize;
     use std::sync::Arc;
     use warp::{get, path, query, Filter, Rejection};
+    use crate::util::proof_key::Challenge;
 
     #[derive(Deserialize, Debug)]
     pub struct Query {
         redirect_uri: String,
-        challenge: String,
+        challenge: Challenge,
     }
 
     #[derive(Debug)]

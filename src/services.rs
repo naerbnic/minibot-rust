@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::sync::Arc;
+use crate::util::proof_key::Challenge;
 
 /// Info stored between the post to the minibot auth exchange start and the
 /// OAuth2 redirect response.
@@ -10,7 +11,7 @@ pub struct AuthRequestInfo {
     pub local_redirect: String,
 
     /// The challenge string provided by a user.
-    pub challenge: String,
+    pub challenge: Challenge,
 }
 
 /// A service that stores/converts `AuthRequestInfo` to and from a string token.
@@ -41,7 +42,7 @@ pub struct AuthConfirmInfo {
     /// The challenge provided by the user. By providing a verifier, it
     /// ensures that the final use of the token on the endpoint is from the
     /// person who requested it.
-    pub challenge: String,
+    pub challenge: Challenge,
 }
 
 pub type AuthConfirmService = dyn TokenService<AuthConfirmInfo> + Send + Sync;

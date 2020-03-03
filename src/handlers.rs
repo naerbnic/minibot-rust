@@ -3,6 +3,7 @@ use anyhow::bail;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use url::Url;
+use crate::util::proof_key::{Challenge, Verifier};
 
 /// Information about an OAuth2 Provider needed to perform the standard code
 /// exchange.
@@ -39,7 +40,7 @@ pub struct OAuthConfig {
 
 pub async fn handle_start_auth_request(
     redirect_uri: String,
-    challenge: String,
+    challenge: Challenge,
     auth_service: Arc<AuthService>,
     oauth_config: Arc<OAuthConfig>,
 ) -> Result<impl warp::Reply, anyhow::Error> {
@@ -106,7 +107,7 @@ pub struct TokenResponse {
 
 pub async fn handle_confirm(
     token: String,
-    verifier: String,
+    verifier: Verifier,
     auth_confirm_service: Arc<AuthConfirmService>,
     oauth_config: Arc<OAuthConfig>,
 ) -> Result<TokenResponse, anyhow::Error> {

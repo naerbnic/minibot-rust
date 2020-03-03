@@ -1,9 +1,31 @@
+use rand::{rngs::OsRng, RngCore};
+use serde::{Deserialize, Serialize};
 use sodiumoxide::crypto::hash::sha256;
 
-pub fn verify_challenge(challenge: &str, verifier: &str) -> Result<(), anyhow::Error> {
+fn generate_challenge(verifier: &str) -> String {
     let verifier_digest = sha256::hash(verifier.as_bytes());
-    let verifier_hash = base64::encode_config(verifier_digest.as_ref(), base64::URL_SAFE_NO_PAD);
-    if verifier_hash == challenge {
+    base64::encode_config(verifier_digest.as_ref(), base64::URL_SAFE_NO_PAD)
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Challenge(String);
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Verifier(String);
+
+pub fn generate_pair() -> (Challenge, Verifier) {
+    let mut bytes = [0u8; 32];
+    OsRng.fill_bytes(&mut bytes[..]);
+    let verifier = base64::encode_config(&bytes[..], base64::URL_SAFE_NO_PAD);
+
+    let challenge = generate_challenge(&verifier);
+    (Challenge(challenge), Verifier(verifier))
+}
+
+pub fn verify_challenge(challenge: &Challenge, verifier: &Verifier) -> Result<(), anyhow::Error> {
+    if generate_challenge(&verifier.0) == challenge.0 {
         Ok(())
     } else {
         anyhow::bail!("Challenge was not successfully verified.")

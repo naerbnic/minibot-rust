@@ -52,5 +52,8 @@ async fn main() {
 
     println!("Twitch config: {:#?}", twitch_config);
 
-    warp::serve(routes).run(([127, 0, 0, 1], 5001)).await;
+    futures::join! (
+        warp::serve(routes).run(([127, 0, 0, 1], 5001)),
+        async {},
+    );
 }
