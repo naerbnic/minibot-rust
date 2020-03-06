@@ -16,6 +16,7 @@ pub struct OAuthProviderInfo {
     /// The URL for the JSON Web Token keys used to verify OpenID identity
     /// tokens.
     pub jwks_keys_url: String,
+    pub api_endpoint: String,
 }
 
 /// Information about an OAuth2 Client/App needed to perform the standard code
@@ -36,6 +37,12 @@ pub struct OAuthClientInfo {
 pub struct OAuthConfig {
     pub provider: OAuthProviderInfo,
     pub client: OAuthClientInfo,
+}
+
+impl OAuthConfig {
+    pub fn api_endpoint(&self) -> url::Url {
+        self.provider.api_endpoint.parse().unwrap()
+    }
 }
 
 pub async fn handle_start_auth_request(
