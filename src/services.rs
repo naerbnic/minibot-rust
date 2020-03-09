@@ -4,6 +4,7 @@ use std::sync::Arc;
 use crate::util::proof_key::Challenge;
 
 pub mod twitch;
+pub mod irc;
 
 /// Info stored between the post to the minibot auth exchange start and the
 /// OAuth2 redirect response.
