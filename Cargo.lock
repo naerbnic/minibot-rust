@@ -479,6 +479,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "futures_codec"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe8859feb7140742ed1a2a85a07941100ad2b5f98a421b353931d718a34144d1"
+dependencies = [
+ "bytes 0.5.4",
+ "futures",
+ "memchr",
+ "pin-project",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -514,7 +526,7 @@ dependencies = [
  "log 0.4.8",
  "slab",
  "tokio",
- "tokio-util",
+ "tokio-util 0.2.0",
 ]
 
 [[package]]
@@ -848,6 +860,20 @@ dependencies = [
  "url_serde",
  "warp",
  "xdg",
+]
+
+[[package]]
+name = "minibot-irc"
+version = "0.1.0"
+dependencies = [
+ "bytes 0.5.4",
+ "futures",
+ "futures_codec",
+ "native-tls",
+ "thiserror",
+ "tokio",
+ "tokio-tls",
+ "tokio-util 0.3.0",
 ]
 
 [[package]]
@@ -1716,6 +1742,21 @@ checksum = "571da51182ec208780505a32528fc5512a8fe1443ab960b3f2f3ef093cd16930"
 dependencies = [
  "bytes 0.5.4",
  "futures-core",
+ "futures-sink",
+ "log 0.4.8",
+ "pin-project-lite",
+ "tokio",
+]
+
+[[package]]
+name = "tokio-util"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af67cdce2b40f8dffb0ee04c853a24217b5d0d3e358f0f5ccc0b5332174ed9a8"
+dependencies = [
+ "bytes 0.5.4",
+ "futures-core",
+ "futures-io",
  "futures-sink",
  "log 0.4.8",
  "pin-project-lite",

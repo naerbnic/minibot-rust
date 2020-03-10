@@ -4,6 +4,9 @@ edition = "2018"
 name = "minibot"
 version = "0.1.0"
 
+[workspace]
+members = ["minibot-irc"]
+
 [dependencies]
 anyhow = "*"
 async-trait = "*"
