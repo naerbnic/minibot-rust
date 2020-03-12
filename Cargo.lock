@@ -479,18 +479,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "futures_codec"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe8859feb7140742ed1a2a85a07941100ad2b5f98a421b353931d718a34144d1"
-dependencies = [
- "bytes 0.5.4",
- "futures",
- "memchr",
- "pin-project",
-]
-
-[[package]]
 name = "generic-array"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -868,7 +856,6 @@ version = "0.1.0"
 dependencies = [
  "bytes 0.5.4",
  "futures",
- "futures_codec",
  "native-tls",
  "thiserror",
  "tokio",

@@ -126,7 +126,7 @@ pub struct Message {
 }
 
 impl Message {
-    fn from_line(text: &[u8]) -> Result<Self> {
+    pub fn from_line(text: &[u8]) -> Result<Self> {
         ensure!(!text.is_empty(), "");
         fn eat_space(text: &mut &[u8]) {
             for (i, ch) in text.iter().copied().enumerate() {

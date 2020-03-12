@@ -1,5 +1,5 @@
-pub mod messages;
 pub mod connection;
+pub mod messages;
 
 #[cfg(test)]
 mod tests {

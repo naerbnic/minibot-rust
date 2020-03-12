@@ -12,6 +12,5 @@ futures = "0.3.4"
 tokio = { version = "0.2.12", features = ["net", "io-util"] }
 tokio-tls = "0.3.0"
 native-tls = "0.2.3"
-tokio-util = { version = "0.3.0", features = ["compat"] }
+tokio-util = { version = "0.3.0", features = ["compat", "codec"] }
 bytes = "0.5.4"
-futures_codec = "0.4.0"

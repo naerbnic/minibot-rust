@@ -1,11 +1,14 @@
+use bytes::{Buf as _, BytesMut};
 use futures::prelude::*;
-use tokio_util::compat::{Tokio02AsyncReadCompatExt as _, Tokio02AsyncWriteCompatExt as _};
 use futures::task::{Context, Poll};
 use std::pin::Pin;
-use bytes::{Buf as _, BytesMut};
+use tokio_util::compat::{Compat, Tokio02AsyncReadCompatExt};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    #[error(transparent)]
+    MessageParseError(#[from] crate::messages::Error),
+
     #[error(transparent)]
     NativeTlsError(#[from] native_tls::Error),
 
@@ -19,46 +22,59 @@ fn make_connector() -> Result<tokio_tls::TlsConnector> {
     Ok(native_tls::TlsConnector::new()?.into())
 }
 
-pub async fn irc_connect_ssl(connector: &tokio_tls::TlsConnector, host: &str, port: u16) -> Result<(Box<dyn AsyncRead + Send + Sync + Unpin + 'static>, Box<dyn AsyncWrite + Send + Sync + Unpin + 'static>)> {
+pub struct NetStream();
+
+pub async fn irc_connect_ssl(
+    connector: &tokio_tls::TlsConnector,
+    host: &str,
+    port: u16,
+) -> Result<(
+    Box<dyn AsyncRead + Send + Sync + Unpin + 'static>,
+    Box<dyn AsyncWrite + Send + Sync + Unpin + 'static>,
+)> {
     let stream = tokio::net::TcpStream::connect((host, port)).await?;
-    let ssl_stream = connector.connect(host, stream).await?;
-    let (reader, writer) = tokio::io::split(ssl_stream);
-    Ok((Box::new(reader.compat()), Box::new(writer.compat_write())))
+    let ssl_stream = connector.connect(host, stream).await?.compat();
+
+    let (reader, writer) = ssl_stream.split();
+    Ok((Box::new(reader), Box::new(writer)))
 }
 
 #[derive(Clone)]
 pub struct IrcCodec;
 
-impl futures_codec::Decoder for IrcCodec {
-    type Item = Vec<u8>;
+impl tokio_util::codec::Decoder for IrcCodec {
+    type Item = crate::messages::Message;
 
     type Error = self::Error;
 
-    fn decode(
-        &mut self,
-        src: &mut BytesMut
-    ) -> Result<Option<Self::Item>> {
+    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>> {
         // Look for ending CR LF
-        let pos = match src.bytes().windows(2).position(|s| s == &[b'\r', b'\n']) {
-            None => return Ok(None),
-            Some(p) => p,
+        let mut src_bytes;
+        let pos = loop {
+            src_bytes = src.bytes();
+            let pos = match src_bytes.windows(2).position(|s| s == b"\r\n") {
+                None => return Ok(None),
+                Some(p) => p,
+            };
+
+            if pos == 0 {
+                // An empty message is just skipped
+                src.advance(2);
+            } else {
+                break pos;
+            }
         };
-        let message_data = src.bytes()[..pos].iter().copied().collect::<Vec<_>>();
+
+        let message = crate::messages::Message::from_line(&src_bytes[..pos])?;
         src.advance(pos + 2);
-        Ok(Some(message_data))
+        Ok(Some(message))
     }
 }
 
-impl futures_codec::Encoder for IrcCodec {
-    type Item = Vec<u8>;
-
+impl tokio_util::codec::Encoder<Vec<u8>> for IrcCodec {
     type Error = self::Error;
 
-    fn encode(
-        &mut self,
-        item: Self::Item,
-        dst: &mut BytesMut
-    ) -> Result<()> {
+    fn encode(&mut self, item: Vec<u8>, dst: &mut BytesMut) -> Result<()> {
         dst.extend_from_slice(&item[..]);
         Ok(())
     }
