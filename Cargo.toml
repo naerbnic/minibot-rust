@@ -20,7 +20,7 @@ sodiumoxide = "0.2.5"
 reqwest = { version = "0.10.1", features = ["json"] }
 serde_json = "1.0.48"
 xdg = "2.2.0"
-devsecrets = { git = "ssh://git@github.com:/naerbnic/devsecrets.git", version = "0.1.0-dev1" }
+devsecrets = { git = "https://github.com/naerbnic/devsecrets", version = "0.1.0-dev1" }
 log = "0.4.8"
 env_logger = "0.7.1"
 lazy_static = "1.4.0"
