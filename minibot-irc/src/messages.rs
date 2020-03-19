@@ -14,6 +14,15 @@ macro_rules! bail {
     }
 }
 
+trait FromBytes : Sized {
+    type Err;
+    fn from_bytes(b: &[u8]) -> std::result::Result<Self, Self::Err>;
+}
+
+fn parse_bytes<T: FromBytes, B: AsRef<[u8]> + ?Sized>(b: &B) -> std::result::Result<T, T::Err> {
+    T::from_bytes(b.as_ref())
+}
+
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
 pub enum Error {
