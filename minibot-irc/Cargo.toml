@@ -14,3 +14,8 @@ tokio-tls = "0.3.0"
 native-tls = "0.2.3"
 tokio-util = { version = "0.3.0", features = ["compat", "codec"] }
 bytes = "0.5.4"
+
+[dev-dependencies]
+anyhow = "1.0.27"
+tokio = { version = "0.2.12", features = ["macros"] }
+devsecrets = { git = "https://github.com/naerbnic/devsecrets", version = "0.1.0-dev1" }

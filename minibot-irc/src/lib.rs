@@ -1,5 +1,7 @@
 pub mod connection;
 pub mod messages;
+pub mod read_bytes;
+pub mod write_bytes;
 
 #[cfg(test)]
 mod tests {
