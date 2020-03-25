@@ -1,12 +1,14 @@
+use crate::messages::Message;
+use crate::read_bytes::ReadBytes;
+use crate::write_bytes::{ByteSink, WriteBytes};
 use bytes::{Buf as _, BytesMut};
+use futures::prelude::*;
 use futures::task::{Context, Poll};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpStream;
 use tokio_tls::{TlsConnector, TlsStream};
 use tokio_util::codec;
-use crate::read_bytes::ReadBytes;
-use crate::write_bytes::{WriteBytes, ByteSink};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -28,7 +30,10 @@ type NetStreamInner = Mutex<TlsStream<tokio::net::TcpStream>>;
 pub struct NetStream(Arc<NetStreamInner>);
 
 impl NetStream {
-    fn call_on_pinned<T, F: FnOnce(Pin<&mut TlsStream<tokio::net::TcpStream>>) -> T>(&self, func: F) -> T {
+    fn call_on_pinned<T, F: FnOnce(Pin<&mut TlsStream<tokio::net::TcpStream>>) -> T>(
+        &self,
+        func: F,
+    ) -> T {
         let mut guard = self.0.lock().unwrap();
         func(Pin::new(&mut *guard))
     }
@@ -87,7 +92,8 @@ pub fn make_connector() -> Result<TlsConnector> {
 
 pub async fn connect_ssl(
     connector: &TlsConnector,
-    host: &str, port: u16,
+    host: &str,
+    port: u16,
 ) -> Result<(ReadNetStream, WriteNetStream)> {
     let init_stream = TcpStream::connect((host, port)).await?;
     let stream = connector.connect(host, init_stream).await?;
@@ -100,18 +106,55 @@ pub async fn connect_ssl(
     Ok((read_stream, write_stream))
 }
 
+pub struct IrcStream(codec::FramedRead<ReadNetStream, IrcCodec>);
+
+impl Stream for IrcStream {
+    type Item = Result<Message>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Result<Message>>> {
+        Pin::new(&mut self.0).poll_next(cx)
+    }
+}
+
+pub struct IrcSink(codec::FramedWrite<WriteNetStream, IrcCodec>);
+
+impl Sink<Message> for IrcSink {
+    type Error = Error;
+    fn poll_ready(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context,
+    ) -> Poll<std::result::Result<(), Self::Error>> {
+        Pin::new(&mut self.0).poll_ready(cx)
+    }
+
+    fn start_send(mut self: Pin<&mut Self>, item: Message) -> std::result::Result<(), Self::Error> {
+        Pin::new(&mut self.0).start_send(item)
+    }
+
+    fn poll_flush(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context,
+    ) -> Poll<std::result::Result<(), Self::Error>> {
+        Pin::new(&mut self.0).poll_flush(cx)
+    }
+
+    fn poll_close(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context,
+    ) -> Poll<std::result::Result<(), Self::Error>> {
+        Pin::new(&mut self.0).poll_close(cx)
+    }
+}
+
 pub async fn irc_connect_ssl(
     connector: &TlsConnector,
     host: &str,
     port: u16,
-) -> Result<(
-    impl futures::stream::Stream<Item = std::result::Result<crate::messages::Message, Error>>,
-    impl futures::sink::Sink<crate::messages::Message, Error=Error>,
-)> {
+) -> Result<(IrcStream, IrcSink)> {
     let (read_stream, write_stream) = connect_ssl(connector, host, port).await?;
     let framed_read = codec::FramedRead::new(read_stream, IrcCodec);
     let framed_write = codec::FramedWrite::new(write_stream, IrcCodec);
-    Ok((framed_read, framed_write))
+    Ok((IrcStream(framed_read), IrcSink(framed_write)))
 }
 
 #[derive(Clone)]

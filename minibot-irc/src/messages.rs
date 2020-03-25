@@ -2,6 +2,7 @@ use super::read_bytes::ReadBytes;
 use super::write_bytes::{ByteSink, WriteBytes};
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::fmt;
 
 macro_rules! ensure {
     ($e:expr, $($fmt:expr),+) => {
@@ -84,8 +85,40 @@ fn parse_tags(tag_word: &[u8]) -> Result<HashMap<String, String>> {
     Ok(result)
 }
 
-#[derive(Debug)]
-pub struct Command(String);
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+pub struct CommandNumber(u16);
+
+impl CommandNumber {
+    pub fn new(i: u16) -> Self {
+        assert!(
+            i > 0 && i < 1000,
+            "A command number must be between 1 and 999 inclusive. Got {:?}",
+            i
+        );
+        CommandNumber(i)
+    }
+
+    pub fn number(&self) -> u16 {
+        self.0
+    }
+}
+
+impl From<CommandNumber> for u16 {
+    fn from(n: CommandNumber) -> u16 {
+        n.number()
+    }
+}
+
+impl fmt::Debug for CommandNumber {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_fmt(format_args!("{:03}", self.0))
+    }
+}
+
+pub enum Command {
+    Name(String),
+    Num(CommandNumber),
+}
 
 impl Command {
     pub fn from_name<'a>(name: impl Into<Cow<'a, str>>) -> Self {
@@ -94,12 +127,20 @@ impl Command {
             assert!(ch.is_ascii());
             assert!(ch.is_alphabetic());
         }
-        Command(name)
+        Command::Name(name)
     }
 
     pub fn from_numeric(n: u16) -> Self {
-        assert!(n < 1000);
-        Command(format!("{:03}", n))
+        Command::Num(CommandNumber::new(n))
+    }
+}
+
+impl fmt::Debug for Command {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Command::Name(n) => f.write_str(n),
+            Command::Num(n) => fmt::Debug::fmt(n, f),
+        }
     }
 }
 
@@ -107,13 +148,39 @@ impl ReadBytes for Command {
     type Err = Error;
     fn read_bytes(buf: &[u8]) -> Result<Self> {
         ensure!(!buf.is_empty(), "Command must not be empty");
-        Ok(Command(std::str::from_utf8(buf)?.to_string()))
+        if buf[0].is_ascii_digit() {
+            ensure!(
+                buf.len() == 3,
+                "Numeric command must be exactly 3 characters long. Got {:?}",
+                String::from_utf8_lossy(buf)
+            );
+            ensure!(
+                buf.iter().all(u8::is_ascii_digit),
+                "Numeric command must be all ascii numbers."
+            );
+
+            let mut total = 0u16;
+            for &b in buf {
+                total = total * 10 + (b - b'0') as u16;
+            }
+
+            Ok(Command::Num(CommandNumber::new(total)))
+        } else {
+            ensure!(
+                buf.iter().all(u8::is_ascii_alphabetic),
+                "Name command must be all ascii letters."
+            );
+            Ok(Command::Name(String::from_utf8(buf.to_vec()).unwrap()))
+        }
     }
 }
 
 impl WriteBytes for Command {
     fn write_bytes<T: ByteSink>(&self, out: &mut T) -> std::result::Result<(), T::Err> {
-        out.write(self.0.as_bytes())
+        match self {
+            Command::Name(n) => out.write(n.as_bytes()),
+            Command::Num(n) => out.write(format!("{:03}", n.number()).as_bytes()),
+        }
     }
 }
 
@@ -216,7 +283,11 @@ pub struct Message {
 
 impl Message {
     pub fn from_command_params<T: AsRef<[S]>, S: AsRef<[u8]>>(cmd: Command, params: T) -> Self {
-        let params = params.as_ref().iter().map(|p| p.as_ref().to_vec()).collect::<Vec<_>>();
+        let params = params
+            .as_ref()
+            .iter()
+            .map(|p| p.as_ref().to_vec())
+            .collect::<Vec<_>>();
         Message {
             tags: HashMap::new(),
             source: None,
@@ -247,9 +318,13 @@ impl std::fmt::Debug for Message {
         }
 
         f.field("command", &self.command);
-        
+
         if !self.params.is_empty() {
-            let param_strs = self.params.iter().map(|p| String::from_utf8_lossy(p)).collect::<Vec<_>>();
+            let param_strs = self
+                .params
+                .iter()
+                .map(|p| String::from_utf8_lossy(p))
+                .collect::<Vec<_>>();
             f.field("params", &param_strs);
         }
 
