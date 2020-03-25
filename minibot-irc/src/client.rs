@@ -1,3 +1,5 @@
+use crate::connection::{IrcConnector, IrcSink, IrcStream};
+
 #[derive(thiserror::Error, Debug)]
 pub enum ClientError {
     #[error("Problem with connection: {0}")]
@@ -5,26 +7,30 @@ pub enum ClientError {
 }
 
 pub struct ClientFactory {
-    connector: tokio_tls::TlsConnector,
+    connector: IrcConnector,
 }
 
 impl ClientFactory {
     pub fn create() -> ClientResult<Self> {
         Ok(ClientFactory {
-            connector: crate::connection::make_connector()?
+            connector: IrcConnector::new()?,
         })
     }
 
-    pub async fn connect(&self, host: &str, port: u16, user: &str, token: &str) -> ClientResult<Client> {
-        let (irc_read, irc_write) = crate::connection::irc_connect_ssl(&self.connector, host, port).await?;
+    pub async fn connect(
+        &self,
+        host: &str,
+        port: u16,
+        user: &str,
+        token: &str,
+    ) -> ClientResult<Client> {
+        let (irc_read, irc_write) = self.connector.connect(host, port).await?;
         Ok(Client {})
     }
 }
 
 pub type ClientResult<T> = Result<T, ClientError>;
 
-pub struct Client {
-}
+pub struct Client {}
 
-impl Client {
-}
+impl Client {}

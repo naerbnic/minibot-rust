@@ -75,10 +75,7 @@ impl IrcRpcConnection {
                                 }
                             },
                             Err(e) => {
-                                let RunningRpc {
-                                    handler,
-                                    ..
-                                } = guard.0.take().unwrap();
+                                let RunningRpc { handler, .. } = guard.0.take().unwrap();
                                 let _ = handler.send(Err(e));
                             }
                         }

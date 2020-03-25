@@ -29,9 +29,8 @@ async fn main() -> anyhow::Result<()> {
     let join_message = Message::from_command_params(Command::from_name("JOIN"), &["#ludofex"]);
     let quit_message = Message::from_command(Command::from_name("QUIT"));
 
-    let connector = minibot_irc::connection::make_connector()?;
-    let (read, mut write) =
-        minibot_irc::connection::irc_connect_ssl(&connector, "irc.chat.twitch.tv", 6697).await?;
+    let connector = minibot_irc::connection::IrcConnector::new()?;
+    let (read, mut write) = connector.connect("irc.chat.twitch.tv", 6697).await?;
     println!("Connected and streams created.");
     write.send(cap_ls_message).await?;
     write.send(cap_req_message).await?;
