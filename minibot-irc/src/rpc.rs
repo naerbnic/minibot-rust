@@ -41,13 +41,13 @@ struct RunningRpc {
 
 struct StreamState(Option<RunningRpc>);
 
-pub struct IrcClient {
+pub struct IrcRpcConnection {
     sink: IrcSink,
     stream_handle: tokio::task::JoinHandle<Result<(), Error>>,
     stream_state: Arc<Mutex<StreamState>>,
 }
 
-impl IrcClient {
+impl IrcRpcConnection {
     pub fn new(
         mut stream: IrcStream,
         sink: IrcSink,
@@ -90,7 +90,7 @@ impl IrcClient {
             }
         });
 
-        IrcClient {
+        IrcRpcConnection {
             sink,
             stream_handle,
             stream_state,
