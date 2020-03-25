@@ -117,11 +117,29 @@ impl WriteBytes for Command {
     }
 }
 
-#[derive(Debug)]
 pub struct Source {
     nick: Option<String>,
     user: Option<String>,
     host: Option<Vec<u8>>,
+}
+
+impl std::fmt::Debug for Source {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let mut source = f.debug_struct("Source");
+        if let Some(nick) = &self.nick {
+            source.field("nick", nick);
+        }
+
+        if let Some(user) = &self.nick {
+            source.field("user", user);
+        }
+
+        if let Some(host) = &self.host {
+            source.field("host", &String::from_utf8_lossy(host).as_ref());
+        }
+
+        source.finish()
+    }
 }
 
 impl ReadBytes for Source {
@@ -189,7 +207,6 @@ impl WriteBytes for Source {
     }
 }
 
-#[derive(Debug)]
 pub struct Message {
     tags: HashMap<String, String>,
     source: Option<Source>,
@@ -207,12 +224,42 @@ impl Message {
             params,
         }
     }
+    pub fn from_command(cmd: Command) -> Self {
+        Message {
+            tags: HashMap::new(),
+            source: None,
+            command: cmd,
+            params: Vec::new(),
+        }
+    }
+}
+
+impl std::fmt::Debug for Message {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let mut f = f.debug_struct("Message");
+
+        if !self.tags.is_empty() {
+            f.field("tags", &self.tags);
+        }
+
+        if let Some(source) = &self.source {
+            f.field("source", source);
+        }
+
+        f.field("command", &self.command);
+        
+        if !self.params.is_empty() {
+            let param_strs = self.params.iter().map(|p| String::from_utf8_lossy(p)).collect::<Vec<_>>();
+            f.field("params", &param_strs);
+        }
+
+        f.finish()
+    }
 }
 
 impl ReadBytes for Message {
     type Err = Error;
     fn read_bytes(buf: &[u8]) -> Result<Self> {
-        ensure!(!buf.is_empty(), "Message must not be empty.");
         fn eat_space(text: &mut &[u8]) {
             for (i, ch) in text.iter().copied().enumerate() {
                 if ch != b' ' {
@@ -222,6 +269,7 @@ impl ReadBytes for Message {
             }
             *text = &[];
         }
+
         fn until_space<'a>(text: &mut &'a [u8]) -> &'a [u8] {
             for (i, ch) in text.iter().copied().enumerate() {
                 if ch == b' ' {
@@ -244,10 +292,10 @@ impl ReadBytes for Message {
             }
         }
 
-
+        ensure!(!buf.is_empty(), "Message must not be empty.");
         let mut remaining_text = buf;
-        let first_char = get_first_char(remaining_text);
-        let tags = if first_char == Some(b'@') {
+        let tags = if let Some((b'@', rest)) = remaining_text.split_first() {
+            remaining_text = rest;
             let tags_word = until_space(&mut remaining_text);
             ensure!(!remaining_text.is_empty(), "Did not find IRC command");
             parse_tags(tags_word)?
@@ -255,8 +303,8 @@ impl ReadBytes for Message {
             HashMap::new()
         };
 
-        let first_char = get_first_char(remaining_text);
-        let source = if first_char == Some(b':') {
+        let source = if let Some((b':', rest)) = remaining_text.split_first() {
+            remaining_text = rest;
             let source_word = until_space(&mut remaining_text);
             ensure!(!remaining_text.is_empty(), "Did not find IRC command");
             Some(Source::read_bytes(source_word)?)

@@ -106,7 +106,7 @@ pub async fn irc_connect_ssl(
     port: u16,
 ) -> Result<(
     impl futures::stream::Stream<Item = std::result::Result<crate::messages::Message, Error>>,
-    impl futures::sink::Sink<crate::messages::Message>,
+    impl futures::sink::Sink<crate::messages::Message, Error=Error>,
 )> {
     let (read_stream, write_stream) = connect_ssl(connector, host, port).await?;
     let framed_read = codec::FramedRead::new(read_stream, IrcCodec);
