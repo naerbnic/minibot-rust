@@ -282,6 +282,14 @@ pub struct Message {
 }
 
 impl Message {
+    pub fn from_named_command_params<T: AsRef<[S]>, S: AsRef<[u8]>>(cmd: &str, params: T) -> Self {
+        Message::from_command_params(Command::from_name(cmd), params)
+    }
+    
+    pub fn from_named_command<T: AsRef<[S]>, S: AsRef<[u8]>>(cmd: &str) -> Self {
+        Message::from_command(Command::from_name(cmd))
+    }
+
     pub fn from_command_params<T: AsRef<[S]>, S: AsRef<[u8]>>(cmd: Command, params: T) -> Self {
         let params = params
             .as_ref()
@@ -295,12 +303,27 @@ impl Message {
             params,
         }
     }
+
     pub fn from_command(cmd: Command) -> Self {
         Message {
             tags: HashMap::new(),
             source: None,
             command: cmd,
             params: Vec::new(),
+        }
+    }
+
+    pub fn has_named_command(&self, name: &str) -> bool {
+        match &self.command {
+            Command::Num(_) => false,
+            Command::Name(n) => n == name,
+        }
+    }
+
+    pub fn has_num_command(&self, num: u16) -> bool {
+        match &self.command {
+            Command::Num(n) => n.number() == num,
+            Command::Name(_) => false,
         }
     }
 }

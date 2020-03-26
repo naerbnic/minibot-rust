@@ -15,30 +15,26 @@ async fn main() -> anyhow::Result<()> {
         .unwrap();
     let key = ds.read_from("irc_key.txt").to_string().unwrap();
 
-    let cap_ls_message = Message::from_command_params(Command::from_name("CAP"), &["LS", "302"]);
-    let pass_message = Message::from_command_params(Command::from_name("PASS"), &[&key]);
-    let nick_message = Message::from_command_params(Command::from_name("NICK"), &["ludofex"]);
-    let cap_req_message = Message::from_command_params(
-        Command::from_name("CAP"),
-        &[
-            "REQ",
-            "twitch.tv/tags twitch.tv/commands twitch.tv/membership",
-        ],
-    );
-    let cap_end_message = Message::from_command_params(Command::from_name("CAP"), &["END"]);
-    let join_message = Message::from_command_params(Command::from_name("JOIN"), &["#ludofex"]);
-    let quit_message = Message::from_command(Command::from_name("QUIT"));
+    let messages = vec! [
+         Message::from_command_params(Command::from_name("CAP"), &["LS", "302"]),
+         Message::from_command_params(Command::from_name("PASS"), &[&key]),
+         Message::from_command_params(Command::from_name("NICK"), &["ludofex"]),
+         Message::from_command_params(
+            Command::from_name("CAP"),
+            &[
+                "REQ",
+                "twitch.tv/tags twitch.tv/commands twitch.tv/membership",
+            ],
+        ),
+         Message::from_command_params(Command::from_name("CAP"), &["END"]),
+         Message::from_command_params(Command::from_name("JOIN"), &["#ludofex,#marstead"]),
+         Message::from_command(Command::from_name("QUIT")),
+    ];
 
     let connector = minibot_irc::connection::IrcConnector::new()?;
     let (read, mut write) = connector.connect("irc.chat.twitch.tv", 6697).await?;
     println!("Connected and streams created.");
-    write.send(cap_ls_message).await?;
-    write.send(cap_req_message).await?;
-    write.send(pass_message).await?;
-    write.send(nick_message).await?;
-    write.send(cap_end_message).await?;
-    write.send(join_message).await?;
-    write.send(quit_message).await?;
+    write.send_all(&mut stream::iter(messages).map(|x| Ok(x))).await?;
     println!("PASS sent.");
     read.try_for_each(|msg| async move {
         println!("Server Msg: {:?}", msg);
