@@ -43,7 +43,7 @@ struct StreamState(Option<RunningRpc>);
 
 pub struct IrcRpcConnection {
     sink: IrcSink,
-    stream_handle: tokio::task::JoinHandle<Result<(), Error>>,
+    stream_abort: future::AbortHandle,
     stream_state: Arc<Mutex<StreamState>>,
 }
 
@@ -54,7 +54,7 @@ impl IrcRpcConnection {
         mut msg_handler: Box<dyn ServerMessageHandler + Send>,
     ) -> Self {
         let stream_state = Arc::new(Mutex::new(StreamState(None)));
-        let stream_handle = tokio::spawn({
+        let handler_future = {
             let stream_state = stream_state.clone();
             async move {
                 while let Some(m) = stream.try_next().await? {
@@ -85,11 +85,13 @@ impl IrcRpcConnection {
                 }
                 Ok::<(), Error>(())
             }
-        });
+        };
+        let (handler_future, stream_abort) = future::abortable(handler_future);
+        tokio::spawn(handler_future);
 
         IrcRpcConnection {
             sink,
-            stream_handle,
+            stream_abort,
             stream_state,
         }
     }

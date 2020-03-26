@@ -2,7 +2,7 @@ use crate::connection::{IrcConnector, IrcSink, IrcStream};
 
 #[derive(thiserror::Error, Debug)]
 pub enum ClientError {
-    #[error("Problem with connection: {0}")]
+    #[error(transparent)]
     Connection(#[from] crate::connection::Error),
 }
 
