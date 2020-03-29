@@ -2,11 +2,11 @@ pub mod login {
     use crate::filters::cloned;
     use crate::handlers::{handle_start_auth_request, OAuthConfig};
     use crate::services::AuthService;
+    use crate::util::proof_key::Challenge;
     use futures::prelude::*;
     use serde::Deserialize;
     use std::sync::Arc;
     use warp::{get, path, query, Filter, Rejection};
-    use crate::util::proof_key::Challenge;
 
     #[derive(Deserialize, Debug)]
     pub struct Query {

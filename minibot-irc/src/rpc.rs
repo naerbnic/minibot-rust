@@ -60,16 +60,22 @@ pub enum RpcCallError<E: std::error::Error + 'static> {
 }
 
 trait ObjectSafeRpcCall {
-    fn msg_filter(&self, msg: &Message) -> Result<FilterResult, Box<dyn std::any::Any + Send + 'static>>;
+    fn msg_filter(
+        &self,
+        msg: &Message,
+    ) -> Result<FilterResult, Box<dyn std::any::Any + Send + 'static>>;
     fn to_inner(self: Box<Self>) -> Box<dyn std::any::Any + 'static>;
 }
 
 struct ObjectSafeCallWrapper<T>(T);
 
 impl<T: RpcCall + 'static> ObjectSafeRpcCall for ObjectSafeCallWrapper<T> {
-    fn msg_filter(&self, msg: &Message) -> Result<FilterResult, Box<dyn std::any::Any + Send + 'static>> {
+    fn msg_filter(
+        &self,
+        msg: &Message,
+    ) -> Result<FilterResult, Box<dyn std::any::Any + Send + 'static>> {
         self.0.msg_filter(msg).map_err(|e| {
-            let new_e: Box<dyn std::any::Any + Send +'static> = Box::new(e);
+            let new_e: Box<dyn std::any::Any + Send + 'static> = Box::new(e);
             new_e
         })
     }
@@ -100,10 +106,9 @@ impl IrcRpcConnection {
                                 FilterResult::Skip => msg_handler(m)
                                     .await
                                     .map_err(|e| Error::HandlerError(Box::new(e)))?,
-                                    FilterResult::End => {
-                                    let RpcStateAndChannel {
-                                        mut state, channel,
-                                    } = guard.0.take().unwrap();
+                                FilterResult::End => {
+                                    let RpcStateAndChannel { mut state, channel } =
+                                        guard.0.take().unwrap();
                                     state.response_messages.push(m);
                                     let _ = channel.send(Ok(state));
                                 }
@@ -151,18 +156,20 @@ impl IrcRpcConnection {
         }
         self.sink
             .send_all(&mut stream::iter(messages).map(|m| Ok(m)))
-            .await.map_err(|_| RpcCallError::RpcCancelledError)?;
+            .await
+            .map_err(|_| RpcCallError::RpcCancelledError)?;
         match rx.await.map_err(|_| RpcCallError::RpcCancelledError)? {
             Ok(state) => {
                 let RpcState {
-                    response_messages, call
+                    response_messages,
+                    call,
                 } = state;
                 let call = call.to_inner().downcast::<T>().unwrap();
-                Ok(call.recv_messages(response_messages).map_err(RpcCallError::CallError)?)
+                Ok(call
+                    .recv_messages(response_messages)
+                    .map_err(RpcCallError::CallError)?)
             }
-            Err(e) => {
-                Err(RpcCallError::CallError(*e.downcast::<T::Err>().unwrap()))
-            }
+            Err(e) => Err(RpcCallError::CallError(*e.downcast::<T::Err>().unwrap())),
         }
     }
 }

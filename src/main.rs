@@ -1,12 +1,12 @@
 #![allow(dead_code)]
 
+mod client;
 mod config;
 mod endpoints;
 mod filters;
 mod handlers;
 mod services;
 mod util;
-mod client;
 
 use handlers::{OAuthClientInfo, OAuthConfig};
 use services::{AuthConfirmService, AuthService, SerdeTokenService};
@@ -52,8 +52,5 @@ async fn main() {
 
     println!("Twitch config: {:#?}", twitch_config);
 
-    futures::join! (
-        warp::serve(routes).run(([127, 0, 0, 1], 5001)),
-        async {},
-    );
+    futures::join!(warp::serve(routes).run(([127, 0, 0, 1], 5001)), async {},);
 }

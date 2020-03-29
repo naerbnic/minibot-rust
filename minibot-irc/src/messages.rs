@@ -285,7 +285,7 @@ impl Message {
     pub fn from_named_command_params<T: AsRef<[S]>, S: AsRef<[u8]>>(cmd: &str, params: T) -> Self {
         Message::from_command_params(Command::from_name(cmd), params)
     }
-    
+
     pub fn from_named_command<T: AsRef<[S]>, S: AsRef<[u8]>>(cmd: &str) -> Self {
         Message::from_command(Command::from_name(cmd))
     }
@@ -332,6 +332,8 @@ impl std::fmt::Debug for Message {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let mut f = f.debug_struct("Message");
 
+        f.field("command", &self.command);
+
         if !self.tags.is_empty() {
             f.field("tags", &self.tags);
         }
@@ -339,8 +341,6 @@ impl std::fmt::Debug for Message {
         if let Some(source) = &self.source {
             f.field("source", source);
         }
-
-        f.field("command", &self.command);
 
         if !self.params.is_empty() {
             let param_strs = self

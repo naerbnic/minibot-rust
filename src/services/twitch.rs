@@ -210,7 +210,11 @@ pub struct AuthToken {
 
 #[async_trait::async_trait]
 pub trait TwitchClient {
-    async fn get_user_info(&self, auth_token: &AuthToken, id: &str) -> Result<TwitchUser, anyhow::Error>;
+    async fn get_user_info(
+        &self,
+        auth_token: &AuthToken,
+        id: &str,
+    ) -> Result<TwitchUser, anyhow::Error>;
 }
 
 pub struct HttpTwitchClient<T> {

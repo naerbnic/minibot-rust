@@ -1,9 +1,9 @@
 use crate::services::{AuthConfirmInfo, AuthConfirmService, AuthRequestInfo, AuthService};
+use crate::util::proof_key::{Challenge, Verifier};
 use anyhow::bail;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use url::Url;
-use crate::util::proof_key::{Challenge, Verifier};
 
 /// Information about an OAuth2 Provider needed to perform the standard code
 /// exchange.
@@ -71,7 +71,8 @@ pub async fn handle_start_auth_request(
         &*oauth_config,
         &["openid", "viewing_activity_read"],
         &token,
-    )?.parse::<warp::http::Uri>()?;
+    )?
+    .parse::<warp::http::Uri>()?;
 
     Ok(warp::redirect::temporary(redirect_uri))
 }

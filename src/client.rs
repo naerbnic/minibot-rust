@@ -80,7 +80,7 @@ impl Client {
             access_token: String,
         }
 
-        let Body { access_token } = response.json::<Body>().await?; 
+        let Body { access_token } = response.json::<Body>().await?;
 
         Ok(access_token)
     }
