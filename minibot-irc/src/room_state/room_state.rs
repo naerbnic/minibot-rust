@@ -1,10 +1,11 @@
 // Temporarily disable unused functions to be able to track real issues
 #![allow(dead_code)]
 
+use super::events::{MembersListUpdate, RoomEvent};
+use crate::futures_util::event_sink::EventSink;
 use futures::channel::mpsc;
 use futures::prelude::*;
 use std::collections::{btree_map, BTreeMap, BTreeSet};
-use super::events::{RoomEvent, MembersListUpdate};
 
 pub struct UserState {
     display_name: String,
@@ -49,6 +50,10 @@ impl MembersState {
         result
     }
 
+    pub fn to_list(&self) -> MembersList {
+        todo!()
+    }
+
     pub fn update(&mut self, members_list: MembersList) {
         match self {
             MembersState::Users(members) => match members_list {
@@ -91,19 +96,15 @@ impl MembersState {
 
 pub struct RoomState {
     members: Option<MembersState>,
-    events_channel: mpsc::Sender<super::events::RoomEvent>,
+    events_channel: EventSink<super::events::RoomEvent>,
 }
 
 impl RoomState {
-    fn new() -> (Self, mpsc::Receiver<super::events::RoomEvent>) {
-        let (tx, rx) = mpsc::channel(10);
-        (
-            RoomState {
-                members: None,
-                events_channel: tx,
-            },
-            rx,
-        )
+    fn new() -> Self {
+        RoomState {
+            members: None,
+            events_channel: EventSink::new(),
+        }
     }
 
     pub fn update_user_state(&mut self, user: &str, display_name: &str) {
@@ -111,6 +112,12 @@ impl RoomState {
     }
 
     pub async fn notify_members_list(&mut self, members_list: MembersList) {
+        self.events_channel
+            .send(RoomEvent::MembersListUpdate(MembersListUpdate {
+                members_list: members_list.clone(),
+            }))
+            .await;
+            
         match &mut self.members {
             Some(members) => members.update(members_list),
             None => self.members = Some(MembersState::from_list(members_list)),
@@ -126,6 +133,26 @@ impl RoomState {
     }
 
     pub fn notify_message(&mut self, user: &str, message: &str) {}
+
+    pub async fn add_listener(&mut self, mut listener: mpsc::Sender<RoomEvent>) {
+        // Get the listener up to speed by sending an update event for the
+        // current state of the room (if there is any).
+        if let Some(members_state) = &self.members {
+            let send_result = listener
+                .send(RoomEvent::MembersListUpdate(MembersListUpdate {
+                    members_list: members_state.to_list(),
+                }))
+                .await;
+
+            // An error indicates the sender was disconnected. No point in
+            // adding it.
+            if send_result.is_err() {
+                return;
+            }
+        }
+
+        self.events_channel.add_sink(listener);
+    }
 }
 
 pub struct ConnectionState {
@@ -135,20 +162,11 @@ pub struct ConnectionState {
 
 impl ConnectionState {
     // The current
-    pub fn notify_join_room(
-        &mut self,
-        room: String,
-    ) -> (
-        &mut RoomState,
-        Option<mpsc::Receiver<super::events::RoomEvent>>,
-    ) {
+    pub fn notify_join_room(&mut self, room: String) -> &mut RoomState {
         use btree_map::Entry;
         match self.rooms.entry(room) {
-            Entry::Occupied(occ) => (occ.into_mut(), None),
-            Entry::Vacant(vac) => {
-                let (state, event_stream) = RoomState::new();
-                (vac.insert(state), Some(event_stream))
-            }
+            Entry::Occupied(occ) => occ.into_mut(),
+            Entry::Vacant(vac) => vac.insert(RoomState::new()),
         }
     }
 
