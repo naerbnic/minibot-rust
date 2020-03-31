@@ -1,3 +1,4 @@
+use crate::byte_string::{ByteStr, ByteString};
 use crate::connection::{IrcConnector, IrcSink, IrcStream};
 use crate::messages::Message;
 use crate::rpc::{FilterResult, IrcRpcConnection, RpcCall};
@@ -60,14 +61,14 @@ impl ClientFactory {
             let params = message.params();
             assert!(params.len() >= 2);
             if params.len() == 2 {
-                assert!(params[0] == b"LS");
+                assert!(params[0].eq_bytes(b"LS"));
                 let caps_list = &params[1];
-                caps.extend(caps_list.split(|b| b == &b' ').map(|cap| cap.to_vec()));
+                caps.extend(caps_list.split_spaces().map(ByteStr::to_string));
             } else if params.len() == 3 {
-                assert!(params[0] == b"*");
-                assert!(params[1] == b"LS");
+                assert!(params[0].eq_bytes(b"*"));
+                assert!(params[1].eq_bytes(b"LS"));
                 let caps_list = &params[2];
-                caps.extend(caps_list.split(|b| b == &b' ').map(|cap| cap.to_vec()));
+                caps.extend(caps_list.split_spaces().map(ByteStr::to_string));
                 break;
             } else {
                 panic!("Unexpected message: {:?}", message);
@@ -98,14 +99,14 @@ impl ClientFactory {
             let params = message.params();
             assert!(params.len() >= 2);
             if params.len() == 2 {
-                assert!(params[0] == b"ACK");
+                assert!(params[0].eq_bytes(b"ACK"));
                 let caps_list = &params[1];
-                caps.extend(caps_list.split(|b| b == &b' ').map(|cap| cap.to_vec()));
+                caps.extend(caps_list.split_spaces().map(ByteStr::to_string));
             } else if params.len() == 3 {
-                assert!(params[0] == b"*");
-                assert!(params[1] == b"ACK");
+                assert!(params[0].eq_bytes(b"*"));
+                assert!(params[1].eq_bytes(b"ACK"));
                 let caps_list = &params[2];
-                caps.extend(caps_list.split(|b| b == &b' ').map(|cap| cap.to_vec()));
+                caps.extend(caps_list.split_spaces().map(ByteStr::to_string));
                 break;
             } else {
                 panic!("Unexpected message: {:?}", message);

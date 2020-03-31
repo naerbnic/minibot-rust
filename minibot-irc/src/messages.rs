@@ -3,6 +3,7 @@ use super::write_bytes::{ByteSink, WriteBytes};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
+use crate::byte_string::{ByteString, ByteStr};
 
 macro_rules! ensure {
     ($e:expr, $($fmt:expr),+) => {
@@ -187,7 +188,7 @@ impl WriteBytes for Command {
 pub struct Source {
     nick: Option<String>,
     user: Option<String>,
-    host: Option<Vec<u8>>,
+    host: Option<ByteString>,
 }
 
 impl std::fmt::Debug for Source {
@@ -202,7 +203,7 @@ impl std::fmt::Debug for Source {
         }
 
         if let Some(host) = &self.host {
-            source.field("host", &String::from_utf8_lossy(host).as_ref());
+            source.field("host", host);
         }
 
         source.finish()
@@ -278,7 +279,7 @@ pub struct Message {
     tags: HashMap<String, String>,
     source: Option<Source>,
     command: Command,
-    params: Vec<Vec<u8>>,
+    params: Vec<ByteString>,
 }
 
 impl Message {
@@ -294,8 +295,8 @@ impl Message {
         let params = params
             .as_ref()
             .iter()
-            .map(|p| p.as_ref().to_vec())
-            .collect::<Vec<_>>();
+            .map(|p| ByteString::from_slice(p.as_ref()))
+            .collect();
         Message {
             tags: HashMap::new(),
             source: None,
@@ -326,7 +327,7 @@ impl Message {
             Command::Name(_) => false,
         }
     }
-    pub fn params(&self) -> &[Vec<u8>] {
+    pub fn params(&self) -> &[ByteString] {
         &self.params[..]
     }
 }
@@ -349,7 +350,7 @@ impl std::fmt::Debug for Message {
             let param_strs = self
                 .params
                 .iter()
-                .map(|p| String::from_utf8_lossy(p))
+                .map(|p| &*p)
                 .collect::<Vec<_>>();
             f.field("params", &param_strs);
         }
@@ -420,11 +421,11 @@ impl ReadBytes for Message {
 
         while !remaining_text.is_empty() {
             if get_first_char(remaining_text) == Some(b':') {
-                params.push(remaining_text[1..].to_owned());
+                params.push(ByteString::from_slice(&remaining_text[1..]));
                 remaining_text = &[];
             } else {
                 let param_word = until_space(&mut remaining_text);
-                params.push(param_word.to_owned());
+                params.push(ByteString::from_slice(param_word));
             }
         }
 
