@@ -1,9 +1,9 @@
 use super::read_bytes::ReadBytes;
 use super::write_bytes::{ByteSink, WriteBytes};
+use crate::byte_string::ByteString;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
-use crate::byte_string::{ByteString, ByteStr};
 
 macro_rules! ensure {
     ($e:expr, $($fmt:expr),+) => {
@@ -347,11 +347,7 @@ impl std::fmt::Debug for Message {
         }
 
         if !self.params.is_empty() {
-            let param_strs = self
-                .params
-                .iter()
-                .map(|p| &*p)
-                .collect::<Vec<_>>();
+            let param_strs = self.params.iter().map(|p| &*p).collect::<Vec<_>>();
             f.field("params", &param_strs);
         }
 

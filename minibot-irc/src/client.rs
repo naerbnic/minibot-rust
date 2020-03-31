@@ -1,7 +1,7 @@
-use crate::byte_string::{ByteStr, ByteString};
-use crate::connection::{IrcConnector, IrcSink, IrcStream};
+use crate::byte_string::ByteStr;
+use crate::connection::IrcConnector;
 use crate::messages::Message;
-use crate::rpc::{FilterResult, IrcRpcConnection, RpcCall};
+use crate::rpc::IrcRpcConnection;
 use futures::prelude::*;
 
 fn join_bytes<T: IntoIterator<Item = S>, S: AsRef<[u8]>>(iter: T, connector: &[u8]) -> Vec<u8> {
@@ -132,7 +132,7 @@ impl ClientFactory {
             }
         }
 
-        let msg_handler = move |m| async move { Ok::<_, ClientError>(()) };
+        let msg_handler = move |_| async move { Ok::<_, ClientError>(()) };
 
         let connection = IrcRpcConnection::new(irc_read, irc_write, msg_handler);
         Ok(Client { connection })
