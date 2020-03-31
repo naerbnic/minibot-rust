@@ -6,6 +6,7 @@ pub mod room_state;
 pub mod rpc;
 pub mod write_bytes;
 mod futures_util;
+pub mod byte_string;
 
 #[cfg(test)]
 mod tests {
