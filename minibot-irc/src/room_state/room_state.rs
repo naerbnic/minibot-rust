@@ -1,7 +1,7 @@
 // Temporarily disable unused functions to be able to track real issues
 #![allow(dead_code)]
 
-use super::events::{MembersListUpdate, RoomEvent};
+use super::events::{self, MembersListUpdate, RoomEvent};
 use crate::futures_util::event_sink::EventSink;
 use futures::channel::mpsc;
 use futures::prelude::*;
@@ -107,8 +107,7 @@ impl RoomState {
         }
     }
 
-    pub fn update_user_state(&mut self, user: &str, display_name: &str) {
-        todo!()
+    pub async fn update_user_state(&mut self, _user: &str, _display_name: &str) {
     }
 
     pub async fn notify_members_list(&mut self, members_list: MembersList) {
@@ -117,22 +116,32 @@ impl RoomState {
                 members_list: members_list.clone(),
             }))
             .await;
-            
+
         match &mut self.members {
             Some(members) => members.update(members_list),
             None => self.members = Some(MembersState::from_list(members_list)),
         }
     }
 
-    pub fn notify_join_room(&mut self, user: &str) {
-        todo!()
+    pub async fn notify_join_room(&mut self, user: &str) {
+        self.events_channel.send(RoomEvent::UserJoined(events::UserJoined {
+            user: user.to_string(),
+        })).await;
     }
 
-    pub fn notify_part_room(&mut self, user: &str) {
-        todo!()
+    pub async fn notify_part_room(&mut self, user: &str) {
+        self.events_channel.send(RoomEvent::UserLeft(events::UserLeft {
+            user: user.to_string(),
+        })).await;
     }
 
-    pub fn notify_message(&mut self, user: &str, message: &str) {}
+    pub async fn notify_message(&mut self, user: &str, message: &str) {
+        self.events_channel
+        .send(RoomEvent::Message(events::Message {
+            from: user.to_string(),
+            message: message.to_string(),
+        })).await
+    }
 
     pub async fn add_listener(&mut self, mut listener: mpsc::Sender<RoomEvent>) {
         // Get the listener up to speed by sending an update event for the
@@ -161,7 +170,6 @@ pub struct ConnectionState {
 }
 
 impl ConnectionState {
-    // The current
     pub fn notify_join_room(&mut self, room: String) -> &mut RoomState {
         use btree_map::Entry;
         match self.rooms.entry(room) {
@@ -178,7 +186,7 @@ impl ConnectionState {
         self.rooms.get(room)
     }
 
-    pub fn notify_whisper(&mut self, user: &str, message: &str) {
+    pub fn notify_whisper(&mut self, _user: &str, _message: &str) {
         todo!()
     }
 }

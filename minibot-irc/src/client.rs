@@ -1,11 +1,29 @@
 use crate::connection::{IrcConnector, IrcSink, IrcStream};
 use crate::messages::Message;
 use crate::rpc::{FilterResult, IrcRpcConnection, RpcCall};
+use futures::prelude::*;
+
+fn join_bytes<T: IntoIterator<Item = S>, S: AsRef<[u8]>>(iter: T, connector: &[u8]) -> Vec<u8> {
+    let mut result = Vec::new();
+    let mut first = true;
+    for item in iter.into_iter() {
+        if first {
+            first = false;
+        } else {
+            result.extend(connector);
+        }
+        result.extend(item.as_ref());
+    }
+    result
+}
 
 #[derive(thiserror::Error, Debug)]
 pub enum ClientError {
     #[error(transparent)]
     Connection(#[from] crate::connection::Error),
+
+    #[error("Stream ended unexpectedly")]
+    UnexpectedEnd,
 }
 
 pub struct ClientFactory {
@@ -26,42 +44,97 @@ impl ClientFactory {
         user: &str,
         token: &str,
     ) -> ClientResult<Client> {
-        let (irc_read, irc_write) = self.connector.connect(host, port).await?;
+        let (mut irc_read, mut irc_write) = self.connector.connect(host, port).await?;
+        irc_write
+            .send(Message::from_named_command_params("CAP", &["LS", "302"]))
+            .await?;
+
+        let mut caps = Vec::new();
+        loop {
+            let message = irc_read.next().await.ok_or(ClientError::UnexpectedEnd)??;
+            assert!(
+                message.has_named_command("CAP"),
+                "Unexpected message: {:?}",
+                message
+            );
+            let params = message.params();
+            assert!(params.len() >= 2);
+            if params.len() == 2 {
+                assert!(params[0] == b"LS");
+                let caps_list = &params[1];
+                caps.extend(caps_list.split(|b| b == &b' ').map(|cap| cap.to_vec()));
+            } else if params.len() == 3 {
+                assert!(params[0] == b"*");
+                assert!(params[1] == b"LS");
+                let caps_list = &params[2];
+                caps.extend(caps_list.split(|b| b == &b' ').map(|cap| cap.to_vec()));
+                break;
+            } else {
+                panic!("Unexpected message: {:?}", message);
+            }
+        }
+
+        eprintln!("Got caps: {:?}", caps);
+
+        // Check that the caps are the expected set.
+
+        let ack_args = join_bytes(caps, b" ");
+
+        irc_write
+            .send(Message::from_named_command_params(
+                "CAP",
+                &[b"REQ", &ack_args[..]],
+            ))
+            .await?;
+
+        let mut caps = Vec::new();
+        loop {
+            let message = irc_read.next().await.ok_or(ClientError::UnexpectedEnd)??;
+            assert!(
+                message.has_named_command("CAP"),
+                "Unexpected message: {:?}",
+                message
+            );
+            let params = message.params();
+            assert!(params.len() >= 2);
+            if params.len() == 2 {
+                assert!(params[0] == b"ACK");
+                let caps_list = &params[1];
+                caps.extend(caps_list.split(|b| b == &b' ').map(|cap| cap.to_vec()));
+            } else if params.len() == 3 {
+                assert!(params[0] == b"*");
+                assert!(params[1] == b"ACK");
+                let caps_list = &params[2];
+                caps.extend(caps_list.split(|b| b == &b' ').map(|cap| cap.to_vec()));
+                break;
+            } else {
+                panic!("Unexpected message: {:?}", message);
+            }
+        }
+
+        irc_write
+            .send(Message::from_named_command_params(
+                "PASS",
+                &[&format!("oauth:{}", token)],
+            ))
+            .await?;
+        irc_write
+            .send(Message::from_named_command_params("NICK", &[user]))
+            .await?;
+        irc_write
+            .send(Message::from_named_command_params("CAP", &[b"END"]))
+            .await?;
+        loop {
+            let message = irc_read.next().await.ok_or(ClientError::UnexpectedEnd)??;
+            if message.has_num_command(376) {
+                break;
+            }
+        }
 
         let msg_handler = move |m| async move { Ok::<_, ClientError>(()) };
 
         let connection = IrcRpcConnection::new(irc_read, irc_write, msg_handler);
         Ok(Client { connection })
-    }
-}
-
-struct JoinCall {
-    channel: String,
-}
-
-impl RpcCall for JoinCall {
-    type Output = ();
-    type Err = ClientError;
-    fn send_messages(&self) -> Vec<Message> {
-        vec![Message::from_named_command_params("JOIN", &[&self.channel])]
-    }
-
-    fn msg_filter(&self, msg: &Message) -> Result<FilterResult, Self::Err> {
-        Ok(if msg.has_named_command("JOIN") {
-            FilterResult::Next
-        } else if msg.has_num_command(353) {
-            FilterResult::Next
-        } else if msg.has_num_command(366) {
-            FilterResult::End
-        } else if msg.has_num_command(461) {
-            todo!()
-        } else {
-            FilterResult::Skip
-        })
-    }
-
-    fn recv_messages(&self, msgs: Vec<Message>) -> Result<Self::Output, Self::Err> {
-        todo!()
     }
 }
 

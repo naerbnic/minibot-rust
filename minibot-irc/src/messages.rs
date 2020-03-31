@@ -326,6 +326,9 @@ impl Message {
             Command::Name(_) => false,
         }
     }
+    pub fn params(&self) -> &[Vec<u8>] {
+        &self.params[..]
+    }
 }
 
 impl std::fmt::Debug for Message {
