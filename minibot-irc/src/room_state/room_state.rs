@@ -107,8 +107,7 @@ impl RoomState {
         }
     }
 
-    pub async fn update_user_state(&mut self, _user: &str, _display_name: &str) {
-    }
+    pub async fn update_user_state(&mut self, _user: &str, _display_name: &str) {}
 
     pub async fn notify_members_list(&mut self, members_list: MembersList) {
         self.events_channel
@@ -124,23 +123,28 @@ impl RoomState {
     }
 
     pub async fn notify_join_room(&mut self, user: &str) {
-        self.events_channel.send(RoomEvent::UserJoined(events::UserJoined {
-            user: user.to_string(),
-        })).await;
+        self.events_channel
+            .send(RoomEvent::UserJoined(events::UserJoined {
+                user: user.to_string(),
+            }))
+            .await;
     }
 
     pub async fn notify_part_room(&mut self, user: &str) {
-        self.events_channel.send(RoomEvent::UserLeft(events::UserLeft {
-            user: user.to_string(),
-        })).await;
+        self.events_channel
+            .send(RoomEvent::UserLeft(events::UserLeft {
+                user: user.to_string(),
+            }))
+            .await;
     }
 
     pub async fn notify_message(&mut self, user: &str, message: &str) {
         self.events_channel
-        .send(RoomEvent::Message(events::Message {
-            from: user.to_string(),
-            message: message.to_string(),
-        })).await
+            .send(RoomEvent::Message(events::Message {
+                from: user.to_string(),
+                message: message.to_string(),
+            }))
+            .await
     }
 
     pub async fn add_listener(&mut self, mut listener: mpsc::Sender<RoomEvent>) {

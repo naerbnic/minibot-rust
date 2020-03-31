@@ -1,6 +1,6 @@
+use super::simple_sender::SimpleSender;
 use futures::channel::mpsc;
 use futures::prelude::*;
-use super::simple_sender::SimpleSender;
 
 pub struct EventSink<T> {
     sinks: Vec<SimpleSender<T>>,
@@ -16,12 +16,7 @@ impl<T: Clone> EventSink<T> {
     }
 
     pub async fn send(&mut self, msg: T) {
-        let joinables = self
-            .sinks
-            .iter_mut()
-            .map(|sender| {
-                sender.send(msg.clone())
-            });
+        let joinables = self.sinks.iter_mut().map(|sender| sender.send(msg.clone()));
 
         future::join_all(joinables).await;
 
