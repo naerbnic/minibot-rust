@@ -96,25 +96,29 @@ impl MembersState {
 
 pub struct RoomState {
     members: Option<MembersState>,
+    events_sink: mpsc::Sender<super::events::RoomEvent>,
     events_channel: EventSink<super::events::RoomEvent>,
 }
 
 impl RoomState {
     fn new() -> Self {
+        let (tx, rx) = mpsc::channel(3);
         RoomState {
             members: None,
-            events_channel: EventSink::new(),
+            events_sink: tx,
+            events_channel: EventSink::new(rx),
         }
     }
 
     pub async fn update_user_state(&mut self, _user: &str, _display_name: &str) {}
 
     pub async fn notify_members_list(&mut self, members_list: MembersList) {
-        self.events_channel
+        self.events_sink
             .send(RoomEvent::MembersListUpdate(MembersListUpdate {
                 members_list: members_list.clone(),
             }))
-            .await;
+            .await
+            .unwrap();
 
         match &mut self.members {
             Some(members) => members.update(members_list),
@@ -123,28 +127,31 @@ impl RoomState {
     }
 
     pub async fn notify_join_room(&mut self, user: &str) {
-        self.events_channel
+        self.events_sink
             .send(RoomEvent::UserJoined(events::UserJoined {
                 user: user.to_string(),
             }))
-            .await;
+            .await
+            .unwrap();
     }
 
     pub async fn notify_part_room(&mut self, user: &str) {
-        self.events_channel
+        self.events_sink
             .send(RoomEvent::UserLeft(events::UserLeft {
                 user: user.to_string(),
             }))
-            .await;
+            .await
+            .unwrap();
     }
 
     pub async fn notify_message(&mut self, user: &str, message: &str) {
-        self.events_channel
+        self.events_sink
             .send(RoomEvent::Message(events::Message {
                 from: user.to_string(),
                 message: message.to_string(),
             }))
             .await
+            .unwrap();
     }
 
     pub async fn add_listener(&mut self, mut listener: mpsc::Sender<RoomEvent>) {

@@ -23,7 +23,6 @@ async fn main() {
 
     // warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
     let ds = devsecrets::DevSecrets::from_id(&DEVSECRETS_ID)
-        .unwrap()
         .unwrap();
 
     let twitch_client: OAuthClientInfo = ds

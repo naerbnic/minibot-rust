@@ -11,7 +11,6 @@ devsecrets::import_id!(DEVSECRETS_ID);
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let ds = devsecrets::DevSecrets::from_id(&DEVSECRETS_ID)
-        .unwrap()
         .unwrap();
     let key = ds.read_from("irc_key.txt").to_string().unwrap();
 
@@ -52,9 +51,11 @@ async fn main() -> anyhow::Result<()> {
         .await?;
     } else {
         let client_factory = minibot_irc::client::ClientFactory::create()?;
-        let _client = client_factory
+        let mut client = client_factory
             .connect("irc.chat.twitch.tv", 6697, "ludofex", &key)
             .await?;
+        client.join("ludofex").await?;
+        client.close().await?;
     }
     Ok(())
 }

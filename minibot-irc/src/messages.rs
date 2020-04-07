@@ -283,18 +283,17 @@ pub struct Message {
 }
 
 impl Message {
-    pub fn from_named_command_params<T: AsRef<[S]>, S: AsRef<[u8]>>(cmd: &str, params: T) -> Self {
+    pub fn from_named_command_params<T: IntoIterator<Item = S>, S: AsRef<[u8]>>(cmd: &str, params: T) -> Self {
         Message::from_command_params(Command::from_name(cmd), params)
     }
 
-    pub fn from_named_command<T: AsRef<[S]>, S: AsRef<[u8]>>(cmd: &str) -> Self {
+    pub fn from_named_command<T: IntoIterator<Item = S>, S: AsRef<[u8]>>(cmd: &str) -> Self {
         Message::from_command(Command::from_name(cmd))
     }
 
-    pub fn from_command_params<T: AsRef<[S]>, S: AsRef<[u8]>>(cmd: Command, params: T) -> Self {
+    pub fn from_command_params<T: IntoIterator<Item = S>, S: AsRef<[u8]>>(cmd: Command, params: T) -> Self {
         let params = params
-            .as_ref()
-            .iter()
+            .into_iter()
             .map(|p| ByteString::from_slice(p.as_ref()))
             .collect();
         Message {
