@@ -820,6 +820,17 @@ dependencies = [
 [[package]]
 name = "minibot-client"
 version = "0.1.0"
+dependencies = [
+ "futures",
+ "minibot-common",
+ "reqwest",
+ "serde",
+ "serde_urlencoded",
+ "thiserror",
+ "tokio",
+ "url 2.1.1",
+ "warp",
+]
 
 [[package]]
 name = "minibot-client-cli"

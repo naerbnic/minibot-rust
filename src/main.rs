@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 
-mod client;
 mod config;
 mod endpoints;
 mod filters;
