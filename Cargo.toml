@@ -26,6 +26,7 @@ lazy_static = "1.4.0"
 futures = "0.3.4"
 rand = "0.7.3"
 serde_urlencoded = "0.6.1"
+minibot-common = { path = "minibot-common" }
 
 [dependencies.serde]
 features = ["derive"]

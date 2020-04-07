@@ -1,4 +1,4 @@
-use crate::util::proof_key::Challenge;
+use minibot_common::proof_key::Challenge;
 use async_trait::async_trait;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::sync::Arc;

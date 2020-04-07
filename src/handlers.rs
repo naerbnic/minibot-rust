@@ -1,5 +1,5 @@
 use crate::services::{AuthConfirmInfo, AuthConfirmService, AuthRequestInfo, AuthService};
-use crate::util::proof_key::{Challenge, Verifier};
+use minibot_common::proof_key;
 use anyhow::bail;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -47,7 +47,7 @@ impl OAuthConfig {
 
 pub async fn handle_start_auth_request(
     redirect_uri: String,
-    challenge: Challenge,
+    challenge: proof_key::Challenge,
     auth_service: Arc<AuthService>,
     oauth_config: Arc<OAuthConfig>,
 ) -> Result<impl warp::Reply, anyhow::Error> {
@@ -115,12 +115,12 @@ pub struct TokenResponse {
 
 pub async fn handle_confirm(
     token: String,
-    verifier: Verifier,
+    verifier: proof_key::Verifier,
     auth_confirm_service: Arc<AuthConfirmService>,
     oauth_config: Arc<OAuthConfig>,
 ) -> Result<TokenResponse, anyhow::Error> {
     let auth_complete_info = auth_confirm_service.from_token(&token).await?;
-    crate::util::proof_key::verify_challenge(&auth_complete_info.challenge, &verifier)?;
+    proof_key::verify_challenge(&auth_complete_info.challenge, &verifier)?;
     // Now that we're all verified, finish the key exchange
 
     let client = reqwest::Client::new();

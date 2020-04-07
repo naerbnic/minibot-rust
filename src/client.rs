@@ -1,4 +1,4 @@
-use crate::util::proof_key;
+use minibot_common::proof_key;
 use futures::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::net::{Ipv4Addr, SocketAddr};
@@ -78,7 +78,7 @@ fn server_route(
     struct CallbackQuery {
         token: String,
     }
-    
+
     warp::path!("callback")
         .and(warp::get())
         .and(warp::query::<CallbackQuery>())

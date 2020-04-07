@@ -802,6 +802,7 @@ dependencies = [
  "futures",
  "lazy_static",
  "log 0.4.8",
+ "minibot-common",
  "rand 0.7.3",
  "reqwest",
  "serde",
