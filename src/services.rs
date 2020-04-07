@@ -3,7 +3,6 @@ use async_trait::async_trait;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::sync::Arc;
 
-pub mod irc;
 pub mod twitch;
 
 /// Info stored between the post to the minibot auth exchange start and the
