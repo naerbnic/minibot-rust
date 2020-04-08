@@ -8,7 +8,7 @@ mod services;
 mod util;
 
 use handlers::{OAuthClientInfo, OAuthConfig};
-use services::{AuthConfirmService, AuthService, SerdeTokenService};
+use services::{AuthConfirmService, AuthService, SerdeTokenService, twitch_token};
 use std::sync::Arc;
 use warp::Filter;
 
@@ -34,15 +34,18 @@ async fn main() {
         provider: config::TWITCH_PROVIDER.clone(),
     });
 
+    let reqwest_client = Arc::new(reqwest::Client::new());
+
     let auth_service: Arc<AuthService> = SerdeTokenService::new();
     let auth_confirm_service: Arc<AuthConfirmService> = SerdeTokenService::new();
+    let twitch_token_service = twitch_token::create_service(reqwest_client.clone(), twitch_config.clone());
 
     let routes = (endpoints::login::endpoint(twitch_config.clone(), auth_service.clone())
         .or(endpoints::callback::endpoint(
             auth_service.clone(),
             auth_confirm_service.clone(),
         ))
-        .or(endpoints::confirm::endpoint(twitch_config.clone(), auth_confirm_service.clone())))
+        .or(endpoints::confirm::endpoint(twitch_token_service, auth_confirm_service.clone())))
     .with(warp::log("server"));
 
     println!("Twitch config: {:#?}", twitch_config);

@@ -4,6 +4,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::sync::Arc;
 
 pub mod twitch;
+pub mod twitch_token;
 
 /// Info stored between the post to the minibot auth exchange start and the
 /// OAuth2 redirect response.

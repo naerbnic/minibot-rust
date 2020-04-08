@@ -83,6 +83,7 @@ pub mod confirm {
     use crate::filters::cloned;
     use crate::handlers::OAuthConfig;
     use crate::services::AuthConfirmService;
+    use crate::services::twitch_token::TwitchTokenService;
     use minibot_common::proof_key;
     use serde::{Serialize, Deserialize};
     use std::sync::Arc;
@@ -102,17 +103,9 @@ pub mod confirm {
 
     async fn handle_endpoint(
         q: &Query,
-        twitch_config: &Arc<OAuthConfig>,
+        twitch_token_service: &Arc<TwitchTokenService>,
         confirm: &Arc<AuthConfirmService>,
     ) -> anyhow::Result<impl warp::Reply> {
-        #[derive(Serialize)]
-        struct TokenQuery<'a> {
-            client_id: &'a str,
-            client_secret: &'a str,
-            code: &'a str,
-            grant_type: &'a str,
-            redirect_uri: &'a str,
-        }
 
         #[derive(Deserialize, Debug)]
         struct TokenResponse {
@@ -126,29 +119,20 @@ pub mod confirm {
 
         let auth_confirm_info = confirm.from_token(&q.token).await?;
         proof_key::verify_challenge(&auth_confirm_info.challenge, &q.verifier)?;
-        let client = reqwest::Client::new();
-        let response = client.post(&twitch_config.provider.token_endpoint).query(&TokenQuery {
-            client_id: &twitch_config.client.client_id,
-            client_secret: &twitch_config.client.client_secret,
-            code: &auth_confirm_info.code,
-            grant_type: "authorization_code",
-            redirect_uri: &twitch_config.client.redirect_url,
-        }).send().await?;
-
-        let token_response: TokenResponse = response.json().await?;
-        log::info!("Retrieved token response: {:#?}", token_response);
+        let response = twitch_token_service.exchange_code(&auth_confirm_info.code).await?;
+        log::info!("Retrieved token response: {:#?}", response);
 
         Ok("Hello!")
     }
 
     pub fn endpoint(
-        twitch_config: Arc<OAuthConfig>,
+        twitch_token_service: Arc<TwitchTokenService>,
         confirm_service: Arc<AuthConfirmService>,
     ) -> impl Filter<Extract = impl warp::Reply, Error = Rejection> + Clone {
         path!("confirm")
             .and(post())
             .and(query::<Query>())
-            .and(cloned(twitch_config))
+            .and(cloned(twitch_token_service))
             .and(cloned(confirm_service))
             .and_then(
                 |q: Query, twitch_config, confirm: Arc<AuthConfirmService>| async move {
