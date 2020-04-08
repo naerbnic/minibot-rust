@@ -21,8 +21,7 @@ async fn main() {
     // let routes = warp::any().map(|| "Hello, World!");
 
     // warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
-    let ds = devsecrets::DevSecrets::from_id(&DEVSECRETS_ID)
-        .unwrap();
+    let ds = devsecrets::DevSecrets::from_id(&DEVSECRETS_ID).unwrap();
 
     let twitch_client: OAuthClientInfo = ds
         .read_from("twitch-client.json")
@@ -43,9 +42,7 @@ async fn main() {
             auth_service.clone(),
             auth_confirm_service.clone(),
         ))
-        .or(endpoints::confirm::endpoint()
-            .map(|q| format!("Confirm: {:?}", q))
-            .boxed()))
+        .or(endpoints::confirm::endpoint(twitch_config.clone(), auth_confirm_service.clone())))
     .with(warp::log("server"));
 
     println!("Twitch config: {:#?}", twitch_config);

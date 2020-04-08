@@ -10,7 +10,7 @@ members = ["minibot-irc", "minibot-client", "minibot-common", "minibot-client-cl
 [dependencies]
 anyhow = "*"
 async-trait = "*"
-thiserror = "*"
+thiserror = "1.0.14"
 url = "*"
 url_serde = "*"
 warp = "*"
