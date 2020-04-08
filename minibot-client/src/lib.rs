@@ -5,6 +5,8 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use url::Url;
 use warp::Filter;
+use futures::channel::oneshot;
+use futures::select;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ClientError {
@@ -26,12 +28,12 @@ fn make_auth_url(auth_url: &str, addr: &SocketAddr, challenge: &proof_key::Chall
 
     #[derive(Serialize)]
     struct Query<'a> {
-        redirect_url: String,
+        redirect_uri: String,
         challenge: &'a proof_key::Challenge,
     }
 
     let query = Query {
-        redirect_url: format!("http://{addr}/callback", addr = addr),
+        redirect_uri: format!("http://{addr}/callback", addr = addr),
         challenge,
     };
 
@@ -83,33 +85,51 @@ pub fn run_client<'a>(
 }
 
 fn server_route(
-    token_dest: Arc<Mutex<Option<String>>>,
+    finished_dest: oneshot::Sender<()>,
+    token_dest: oneshot::Sender<String>,
 ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
     #[derive(Deserialize)]
     struct CallbackQuery {
         token: String,
     }
 
+    let token_dest = Arc::new(Mutex::new(Some((finished_dest, token_dest))));
+
     warp::path!("callback")
         .and(warp::get())
         .and(warp::query::<CallbackQuery>())
         .map(move |q| {
             let CallbackQuery { token } = q;
-            *token_dest.lock().unwrap() = Some(token);
+            if let Some((finished_dest, token_dest)) = token_dest.lock().unwrap().take() {
+                let _ = finished_dest.send(());
+                let _ = token_dest.send(token);
+            }
             "You win!".to_string()
         })
 }
 
 fn run_server(
-    shutdown: impl Future<Output = ()> + Send + 'static,
+    shutdown: impl Future<Output = ()> + Send + Unpin + 'static,
 ) -> (SocketAddr, impl Future<Output = Option<String>>) {
-    let token_slot = Arc::new(Mutex::new(None));
-    let server = warp::serve(server_route(token_slot.clone()));
+    let (token_tx, mut token_rx) = oneshot::channel();
+    let (finished_tx, finished_rx) = oneshot::channel();
+
+    let shutdown = async move {
+        let mut shutdown = shutdown.fuse();
+        let mut finished = finished_rx.fuse();
+
+        select! {
+            _ = shutdown => {}
+            _ = finished => {}
+        }
+    };
+    let server = warp::serve(server_route(finished_tx, token_tx));
     let (addr, server_future) =
         server.bind_with_graceful_shutdown((Ipv4Addr::LOCALHOST, 0), shutdown);
 
     (addr, async move {
         server_future.await;
-        token_slot.lock().unwrap().take()
+        token_rx.close();
+        token_rx.try_recv().unwrap_or(None)
     })
 }
