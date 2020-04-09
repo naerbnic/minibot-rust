@@ -1,4 +1,13 @@
-use crate::util::table::Table;
+use crate::util::table::{Index, Table, Error as TableError};
+
+
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error(transparent)]
+    TableError(#[from] TableError),
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Clone)]
 pub struct TwitchAccount {
@@ -14,19 +23,24 @@ pub struct Account {
     bot_account: TwitchAccount,
 }
 
-pub struct AccountService(Table<Account>);
-
-const STREAMER_USER_ID_INDEX: &str = "streamer_user_id";
-const BOT_USER_ID_INDEX: &str = "bot_user_id";
+pub struct AccountService {
+    table: Table<Account>,
+    streamer_user_id_index: Index<Account, u64>,
+    bot_user_id_index: Index<Account, u64>,
+}
 
 impl AccountService {
     pub fn new() -> Self {
-        AccountService(
-            Table::<Account>::builder()
-                .add_index_borrowed(STREAMER_USER_ID_INDEX, |a| &a.streamer_account.user_id)
-                .add_index_borrowed(BOT_USER_ID_INDEX, |a| &a.bot_account.user_id)
-                .build(),
-        )
+        let mut table = Table::new();
+        let streamer_user_id_index =
+            table.add_index_borrowed(|a: &Account| &a.streamer_account.user_id);
+        let bot_user_id_index = table.add_index_borrowed(|a| &a.bot_account.user_id);
+
+        AccountService {
+            table,
+            streamer_user_id_index,
+            bot_user_id_index,
+        }
     }
 }
 
@@ -38,5 +52,3 @@ mod test {
         let _ = AccountService::new();
     }
 }
-
-

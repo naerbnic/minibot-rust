@@ -1,6 +1,6 @@
-use futures::lock::Mutex;
-use std::any::Any;
+use std::borrow::Borrow;
 use std::collections::BTreeMap;
+use std::sync::{Arc, RwLock, Weak};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -39,68 +39,62 @@ impl<T> AccessorResult<'_, T> {
 struct TableCore<T> {
     next_id: u64,
     rows: BTreeMap<u64, T>,
-    indexes: BTreeMap<String, Box<dyn Index<T>>>,
+    indexes: Vec<Weak<dyn IndexUpdater<T>>>,
 }
 
-trait Index<T> {
-    fn add_entry(&mut self, rows: &BTreeMap<u64, T>, id: u64) -> Result<()>;
-    fn get_entries(
-        &self,
-        rows: &BTreeMap<u64, T>,
-        value: &(dyn Any + 'static + Send + Sync),
-    ) -> Result<Vec<u64>>;
-    fn update_entry(&mut self, rows: &BTreeMap<u64, T>, id: u64, old_entry: &T) -> Result<()>;
-    fn remove_entry(&mut self, rows: &BTreeMap<u64, T>, id: u64) -> Result<()>;
+/// An internal trait that allows a table to update an index.
+trait IndexUpdater<T> {
+    fn add_entry(&self, rows: &BTreeMap<u64, T>, id: u64) -> Result<()>;
+    fn update_entry(&self, rows: &BTreeMap<u64, T>, id: u64, old_entry: &T) -> Result<()>;
+    fn remove_entry(&self, rows: &BTreeMap<u64, T>, id: u64) -> Result<()>;
 }
 
 impl<T: Clone> TableCore<T> {
-    pub fn new(indexes: BTreeMap<String, Box<dyn Index<T>>>) -> Self {
+    pub fn new() -> Self {
         TableCore {
             next_id: 0,
             rows: BTreeMap::new(),
-            indexes,
+            indexes: Vec::new(),
         }
     }
 
-    async fn add_entry(&mut self, value: T) -> Result<u64> {
+    fn apply_to_indexes<F>(&mut self, f: F) -> Result<()>
+    where
+        F: Fn(&BTreeMap<u64, T>, &dyn IndexUpdater<T>) -> Result<()>,
+    {
+        for index in &mut self.indexes {
+            if let Some(index) = index.upgrade() {
+                f(&self.rows, &*index)?;
+            }
+        }
+
+        self.retain_valid_indexes();
+
+        Ok(())
+    }
+
+    fn retain_valid_indexes(&mut self) {
+        self.indexes.retain(|index| index.upgrade().is_some());
+    }
+
+    fn add_entry(&mut self, value: T) -> Result<u64> {
         let new_id = self.next_id;
         self.next_id += 1;
         self.rows.insert(new_id, value);
 
-        for index in self.indexes.values_mut() {
-            index.add_entry(&self.rows, new_id)?;
-        }
+        self.apply_to_indexes(|rows, index| index.add_entry(rows, new_id))?;
 
         Ok(new_id)
     }
 
-    async fn get_entry(&self, id: u64) -> Result<Option<T>> {
+    fn get_entry(&self, id: u64) -> Result<Option<T>> {
         Ok(self.rows.get(&id).cloned())
     }
 
-    async fn get_entries_by_index(
-        &self,
-        index_name: &str,
-        value: &(dyn Any + 'static + Send + Sync),
-    ) -> Result<Vec<(u64, T)>> {
-        let index = self
-            .indexes
-            .get(index_name)
-            .ok_or_else(|| Error::UnknownIndex(index_name.to_string()))?;
-
-        let found_entries = index.get_entries(&self.rows, value)?;
-        Ok(found_entries
-            .into_iter()
-            .map(|i| (i, self.rows.get(&i).unwrap().clone()))
-            .collect())
-    }
-
-    async fn update_entry(&mut self, id: u64, value: T) -> Result<()> {
+    fn update_entry(&mut self, id: u64, value: T) -> Result<()> {
         match self.rows.insert(id, value) {
             Some(old) => {
-                for index in self.indexes.values_mut() {
-                    index.update_entry(&self.rows, id, &old)?;
-                }
+                self.apply_to_indexes(|rows, index| index.update_entry(rows, id, &old))?;
                 Ok(())
             }
             None => {
@@ -110,27 +104,29 @@ impl<T: Clone> TableCore<T> {
         }
     }
 
-    async fn remove_entry(&mut self, id: u64) -> Result<T> {
+    fn remove_entry(&mut self, id: u64) -> Result<T> {
         if !self.rows.contains_key(&id) {
             return Err(Error::RemovingNonexistentId(id));
         }
-        for index in self.indexes.values_mut() {
-            index.remove_entry(&self.rows, id)?;
-        }
+        self.apply_to_indexes(|rows, index| index.remove_entry(rows, id))?;
         Ok(self.rows.remove(&id).unwrap())
     }
 }
 
-struct IndexImpl<T, K> {
+struct IndexStore<T, K> {
     accessor: Box<dyn for<'a> Fn(&'a T) -> AccessorResult<'a, K> + Send + Sync>,
     entries: Vec<u64>,
 }
 
-impl<T, K> IndexImpl<T, K>
+impl<T, K> IndexStore<T, K>
 where
     K: Ord,
 {
-    fn find_range(&self, key: &K, rows: &BTreeMap<u64, T>) -> std::ops::Range<usize> {
+    fn find_range<Q>(&self, rows: &BTreeMap<u64, T>, key: &Q) -> std::ops::Range<usize>
+    where
+        K: Borrow<Q>,
+        Q: Ord + ?Sized,
+    {
         let finder = entry_finder(&self.accessor, rows, key);
 
         match self.entries.binary_search_by(&finder) {
@@ -166,71 +162,30 @@ where
             },
         }
     }
-}
 
-fn entry_finder<'a, T, F, K>(
-    accessor: F,
-    rows: &'a BTreeMap<u64, T>,
-    value: &'a K,
-) -> impl Fn(&u64) -> std::cmp::Ordering + 'a
-where
-    F: for<'b> Fn(&'b T) -> AccessorResult<'b, K> + 'a,
-    K: Ord,
-{
-    move |target_id| {
-        let target_cow = accessor(rows.get(target_id).unwrap());
-        let target = target_cow.as_ref();
-        target.cmp(value)
+    pub fn get_entries<Q>(&self, rows: &BTreeMap<u64, T>, value: &Q) -> Result<Vec<u64>>
+    where
+        K: Borrow<Q>,
+        Q: Ord + ?Sized,
+    {
+        let range = self.find_range(rows, value);
+
+        Ok(self.entries[range].iter().copied().collect())
     }
-}
 
-fn entry_cmp<'a, T, F, K>(
-    accessor: F,
-    rows: &'a BTreeMap<u64, T>,
-) -> impl Fn(&u64, &u64) -> std::cmp::Ordering + 'a
-where
-    F: for<'b> Fn(&'b T) -> AccessorResult<'b, K> + 'a,
-    K: Clone + Ord,
-{
-    move |left_id, right_id| {
-        let left_cow = accessor(rows.get(left_id).unwrap());
-        let left = left_cow.as_ref();
-        let right_cow = accessor(rows.get(right_id).unwrap());
-        let right = right_cow.as_ref();
-        left.cmp(right)
-    }
-}
-
-impl<T, K> Index<T> for IndexImpl<T, K>
-where
-    T: Send + Sync,
-    K: Ord + Sync + 'static,
-{
     fn add_entry(&mut self, rows: &BTreeMap<u64, T>, id: u64) -> Result<()> {
         let new_entry_key_cow = (self.accessor)(rows.get(&id).unwrap());
         let new_entry_key = new_entry_key_cow.as_ref();
-        let range = self.find_range(new_entry_key, rows);
+        let range = self.find_range(rows, new_entry_key);
 
         self.entries.insert(range.end, id);
         Ok(())
     }
 
-    fn get_entries(
-        &self,
-        rows: &BTreeMap<u64, T>,
-        value: &(dyn Any + 'static + Send + Sync),
-    ) -> Result<Vec<u64>> {
-        let value_ref = value.downcast_ref::<K>().ok_or(Error::WrongIndexType)?;
-
-        let range = self.find_range(value_ref, rows);
-
-        Ok(self.entries[range].iter().copied().collect())
-    }
-
     fn update_entry(&mut self, rows: &BTreeMap<u64, T>, id: u64, old_entry: &T) -> Result<()> {
         let old_entry_key_cow = (self.accessor)(old_entry);
         let old_entry_key = old_entry_key_cow.as_ref();
-        let range = self.find_range(old_entry_key, rows);
+        let range = self.find_range(rows, old_entry_key);
 
         let index = self.entries[range.clone()]
             .iter()
@@ -243,7 +198,7 @@ where
     fn remove_entry(&mut self, rows: &BTreeMap<u64, T>, id: u64) -> Result<()> {
         let old_entry_key_cow = (self.accessor)(rows.get(&id).unwrap());
         let old_entry_key = old_entry_key_cow.as_ref();
-        let range = self.find_range(old_entry_key, rows);
+        let range = self.find_range(rows, old_entry_key);
 
         let index = self.entries[range.clone()]
             .iter()
@@ -254,109 +209,227 @@ where
     }
 }
 
-pub struct Table<T>(Mutex<TableCore<T>>);
-
-impl<T: Clone> Table<T> {
-    pub fn builder() -> TableBuilder<T> {
-        TableBuilder {
-            indexes: BTreeMap::new(),
-        }
-    }
-
-    pub async fn add(&self, value: T) -> Result<u64> {
-        let mut guard = self.0.lock().await;
-        guard.add_entry(value).await
-    }
-
-    pub async fn get(&self, id: u64) -> Result<Option<T>> {
-        let guard = self.0.lock().await;
-        guard.get_entry(id).await
-    }
-
-    pub async fn get_by_index<V>(&self, index_name: &str, value: &V) -> Result<Vec<(u64, T)>>
-    where
-        V: Any + 'static + Send + Sync,
-    {
-        let guard = self.0.lock().await;
-        guard.get_entries_by_index(index_name, value).await
-    }
-
-    pub async fn update(&self, id: u64, new_value: T) -> Result<()> {
-        let mut guard = self.0.lock().await;
-        guard.update_entry(id, new_value).await
-    }
-
-    pub async fn remove(&self, id: u64) -> Result<T> {
-        let mut guard = self.0.lock().await;
-        guard.remove_entry(id).await
-    }
-}
-
-pub struct TableBuilder<T> {
-    indexes: BTreeMap<String, Box<dyn Index<T>>>,
-}
-
-impl<T> TableBuilder<T>
+fn entry_finder<'a, T, F, K, Q>(
+    accessor: F,
+    rows: &'a BTreeMap<u64, T>,
+    value: &'a Q,
+) -> impl Fn(&u64) -> std::cmp::Ordering + 'a
 where
-    T: Clone + Send + Sync + 'static,
+    F: for<'b> Fn(&'b T) -> AccessorResult<'b, K> + 'a,
+    K: Borrow<Q>,
+    Q: Ord + ?Sized,
 {
-    fn add_index_inner<F, K>(&mut self, name: &str, accessor: F) -> &mut Self
+    move |target_id| {
+        let target_cow = accessor(rows.get(target_id).unwrap());
+        let target = target_cow.as_ref();
+        target.borrow().cmp(value)
+    }
+}
+
+fn entry_cmp<'a, T, F, K>(
+    accessor: F,
+    rows: &'a BTreeMap<u64, T>,
+) -> impl Fn(&u64, &u64) -> std::cmp::Ordering + 'a
+where
+    F: for<'b> Fn(&'b T) -> AccessorResult<'b, K> + 'a,
+    K: Ord,
+{
+    move |left_id, right_id| {
+        let left_cow = accessor(rows.get(left_id).unwrap());
+        let left = left_cow.as_ref();
+        let right_cow = accessor(rows.get(right_id).unwrap());
+        let right = right_cow.as_ref();
+        left.cmp(right)
+    }
+}
+
+impl<T, K> IndexUpdater<T> for RwLock<IndexStore<T, K>>
+where
+    T: Send + Sync,
+    K: Ord + Sync + 'static,
+{
+    fn add_entry(&self, rows: &BTreeMap<u64, T>, id: u64) -> Result<()> {
+        let mut guard = self.write().unwrap();
+        guard.add_entry(rows, id)
+    }
+
+    fn update_entry(&self, rows: &BTreeMap<u64, T>, id: u64, old_entry: &T) -> Result<()> {
+        let mut guard = self.write().unwrap();
+        guard.update_entry(rows, id, old_entry)
+    }
+
+    fn remove_entry(&self, rows: &BTreeMap<u64, T>, id: u64) -> Result<()> {
+        let mut guard = self.write().unwrap();
+        guard.remove_entry(rows, id)
+    }
+}
+
+type TableCoreHandle<T> = Arc<RwLock<TableCore<T>>>;
+type IndexStoreHandle<T, K> = Arc<RwLock<IndexStore<T, K>>>;
+
+pub struct Table<T>(TableCoreHandle<T>);
+
+impl<T> Table<T> where T: Clone + Send + Sync + 'static {
+    pub fn new() -> Self {
+        Table(Arc::new(RwLock::new(TableCore::new())))
+    }
+
+    pub fn add(&self, value: T) -> Result<u64> {
+        let mut guard = self.0.write().unwrap();
+        guard.add_entry(value)
+    }
+
+    pub fn get(&self, id: u64) -> Result<Option<T>> {
+        let guard = self.0.read().unwrap();
+        guard.get_entry(id)
+    }
+
+    pub fn update(&self, id: u64, new_value: T) -> Result<()> {
+        let mut guard = self.0.write().unwrap();
+        guard.update_entry(id, new_value)
+    }
+
+    pub fn remove(&self, id: u64) -> Result<T> {
+        let mut guard = self.0.write().unwrap();
+        guard.remove_entry(id)
+    }
+
+    fn add_index_inner<F, K>(&mut self, accessor: F) -> Index<T, K>
     where
         F: for<'a> Fn(&'a T) -> AccessorResult<'a, K> + Send + Sync + 'static,
         K: Ord + Sync + 'static,
     {
-        let index = Box::new(IndexImpl {
+        let new_table_handle = self.0.clone();
+        let mut guard = self.0.write().unwrap();
+
+        let mut entries = guard.rows.keys().cloned().collect::<Vec<_>>();
+
+        entries.sort_by(entry_cmp(&accessor, &guard.rows));
+
+        let store = IndexStore {
             accessor: Box::new(accessor),
-            entries: Vec::new(),
-        });
-        self.indexes.insert(name.to_string(), index);
-        self
+            entries,
+        };
+
+        let store_handle = Arc::new(RwLock::new(store));
+
+        let weak_store_handle = Arc::downgrade(&store_handle);
+
+        guard.indexes.push(weak_store_handle);
+
+        Index {
+            table: new_table_handle,
+            index: store_handle,
+        }
     }
 
-    pub fn add_index_borrowed<F, K>(&mut self, name: &str, accessor: F) -> &mut Self
+    pub fn add_index_borrowed<F, K>(&mut self, accessor: F) -> Index<T, K>
     where
         F: for<'a> Fn(&'a T) -> &K + Send + Sync + 'static,
         K: Ord + Sync + 'static,
     {
-        self.add_index_inner(name, move |t| AccessorResult::Borrowed(accessor(t)))
+        self.add_index_inner(move |t| AccessorResult::Borrowed(accessor(t)))
     }
 
-    pub fn add_index_owned<F, K>(&mut self, name: &str, accessor: F) -> &mut Self
+    pub fn add_index_owned<F, K>(&mut self, accessor: F) -> Index<T, K>
     where
         F: for<'a> Fn(&'a T) -> K + Send + Sync + 'static,
         K: Ord + Sync + 'static,
     {
-        self.add_index_inner(name, move |t| -> AccessorResult<K> {
+        self.add_index_inner(move |t| -> AccessorResult<K> {
             AccessorResult::Owned(accessor(t))
         })
     }
+}
 
-    pub fn build(&mut self) -> Table<T> {
-        Table(Mutex::new(TableCore::new(std::mem::replace(
-            &mut self.indexes,
-            BTreeMap::new(),
-        ))))
+pub struct Index<T, K> {
+    /// A reference to the internals of the table, under lock.
+    ///
+    /// This also has a handle to the index stores, however we only call methods on this that
+    /// do not directly access the index, so accessing this mutex should be fine.
+    table: TableCoreHandle<T>,
+    index: IndexStoreHandle<T, K>,
+}
+
+impl<T, K> Index<T, K>
+where
+    T: Clone,
+    K: Ord,
+{
+    pub fn get_entries<Q>(&self, value: &Q) -> Result<Vec<(u64, T)>>
+    where
+        K: Borrow<Q>,
+        Q: Ord + ?Sized,
+    {
+        // Order is important here to avoid deadlock: Grab the table then the index.
+        let table_guard = self.table.read().unwrap();
+        let index_guard = self.index.read().unwrap();
+
+        let rows = &table_guard.rows;
+
+        let ids = index_guard.get_entries(rows, value)?;
+        Ok(ids
+            .into_iter()
+            .map(|id| (id, rows.get(&id).cloned().unwrap()))
+            .collect())
     }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    fn make_table() -> Table<String> {
-        Table::<String>::builder()
-            .add_index_borrowed("string", |v| &*v)
-            .build()
+
+    #[test]
+    fn test_simple_add_get() -> Result<()> {
+        let table = Table::new();
+        let id1 = table.add("hello".to_string())?;
+        let id2 = table.add("goodbye".to_string())?;
+
+        assert_eq!(Some("goodbye".to_string()), table.get(id2)?);
+        assert_eq!(Some("hello".to_string()), table.get(id1)?);
+
+        Ok(())
     }
 
-    #[tokio::test]
-    async fn simple_add_remove() -> Result<()> {
-        let table = make_table();
-        let id1 = table.add("hello".to_string()).await?;
-        let id2 = table.add("goodbye".to_string()).await?;
+    #[test]
+    fn test_index_lookup() -> Result<()> {
+        let mut table = Table::<String>::new();
+        let content_index = table.add_index_borrowed(|v| v);
 
-        assert_eq!(Some("goodbye".to_string()), table.get(id2).await?);
-        assert_eq!(Some("hello".to_string()), table.get(id1).await?);
+        let id1 = table.add("hello".to_string())?;
+        let id2 = table.add("goodbye".to_string())?;
 
+        assert_eq!(vec![id1], content_index.get_entries("hello")?.into_iter().map(|(id, _)| id).collect::<Vec<_>>());
+        assert_eq!(vec![id2], content_index.get_entries("goodbye")?.into_iter().map(|(id, _)| id).collect::<Vec<_>>());
+        Ok(())
+    }
+
+    #[test]
+    fn test_late_index() -> Result<()> {
+        let mut table = Table::<String>::new();
+
+        let id1 = table.add("hello".to_string())?;
+        let id2 = table.add("goodbye".to_string())?;
+
+        let content_index = table.add_index_borrowed(|v| v);
+
+        assert_eq!(vec![id1], content_index.get_entries("hello")?.into_iter().map(|(id, _)| id).collect::<Vec<_>>());
+        assert_eq!(vec![id2], content_index.get_entries("goodbye")?.into_iter().map(|(id, _)| id).collect::<Vec<_>>());
+        Ok(())
+    }
+
+    fn test_equal_index() -> Result<()> {
+        let mut table = Table::<String>::new();
+
+        let content_index = table.add_index_borrowed(|v| v);
+
+        let id1 = table.add("hello".to_string())?;
+        let id2 = table.add("hello".to_string())?;
+
+        assert_ne!(id1, id2);
+
+        assert_eq!(vec![id1, id2], content_index.get_entries("hello")?.into_iter().map(|(id, _)| id).collect::<Vec<_>>());
+        assert_eq!(Vec::<u64>::new(), content_index.get_entries("goodbye")?.into_iter().map(|(id, _)| id).collect::<Vec<_>>());
         Ok(())
     }
 }
