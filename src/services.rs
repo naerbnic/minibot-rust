@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::sync::Arc;
 
+pub mod account; 
 pub mod twitch;
 pub mod twitch_token;
 
