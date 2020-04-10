@@ -42,6 +42,14 @@ impl AccountService {
             bot_user_id_index,
         }
     }
+
+    pub async fn create_account(&self, acct: Account) -> Result<u64> {
+        Ok(self.table.add(acct)?)
+    }
+
+    pub async fn get_account(&self, user_id: u64) -> Result<Option<Account>> {
+        Ok(self.table.get(user_id)?)
+    }
 }
 
 #[cfg(test)]

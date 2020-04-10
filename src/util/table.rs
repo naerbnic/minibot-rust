@@ -15,6 +15,9 @@ pub enum Error {
 
     #[error("Tried to remove nonexistent entry: {0}")]
     RemovingNonexistentId(u64),
+
+    #[error("Entry already exists.")]
+    AlreadyExists,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
