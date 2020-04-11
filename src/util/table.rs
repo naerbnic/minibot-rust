@@ -4,9 +4,6 @@ use std::sync::{Arc, RwLock, Weak};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("Passed the wrong value type into an index.")]
-    WrongIndexType,
-
     #[error("Unknown index: {0}")]
     UnknownIndex(String),
 
@@ -109,9 +106,7 @@ impl<T: Clone> TableCore<T> {
 
     fn add_entry(&mut self, value: T) -> Result<u64> {
         let new_id = self.next_id;
-        if self.rows.contains_key(&new_id) {
-            return Err(Error::AlreadyExists);
-        }
+        assert!(!self.rows.contains_key(&new_id));
 
         let rows = &self.rows;
         self.indexes.apply(|index| index.check_add(rows, &value))?;
@@ -222,7 +217,7 @@ where
     }
 
     fn check_add(&self, rows: &BTreeMap<u64, T>, value: &T) -> Result<()> {
-        if let Uniqueness::NotUnique = self.unique {
+        if let Uniqueness::Unique = self.unique {
             let new_entry_key_cow = (self.accessor)(value);
             let new_entry_key = new_entry_key_cow.as_ref();
             let range = self.find_range(rows, new_entry_key);
@@ -236,7 +231,7 @@ where
     }
 
     fn check_update(&self, rows: &BTreeMap<u64, T>, id: u64, new_value: &T) -> Result<()> {
-        if let Uniqueness::NotUnique = self.unique {
+        if let Uniqueness::Unique = self.unique {
             let new_entry_key_cow = (self.accessor)(new_value);
             let new_entry_key = new_entry_key_cow.as_ref();
             let range = self.find_range(rows, new_entry_key);
@@ -458,6 +453,38 @@ where
     T: Clone,
     K: Ord,
 {
+    pub fn get_ids<Q>(&self, value: &Q) -> Result<Vec<u64>>
+    where
+        K: Borrow<Q>,
+        Q: Ord + ?Sized,
+    {
+        // Order is important here to avoid deadlock: Grab the table then the index.
+        let table_guard = self.table.read().unwrap();
+        let index_guard = self.index.read().unwrap();
+
+        let rows = &table_guard.rows;
+
+        Ok(index_guard.get_entries(rows, value)?)
+    }
+
+    pub fn get_values<Q>(&self, value: &Q) -> Result<Vec<T>>
+    where
+        K: Borrow<Q>,
+        Q: Ord + ?Sized,
+    {
+        // Order is important here to avoid deadlock: Grab the table then the index.
+        let table_guard = self.table.read().unwrap();
+        let index_guard = self.index.read().unwrap();
+
+        let rows = &table_guard.rows;
+
+        let ids = index_guard.get_entries(rows, value)?;
+        Ok(ids
+            .into_iter()
+            .map(|id| rows.get(&id).cloned().unwrap())
+            .collect())
+    }
+
     pub fn get_entries<Q>(&self, value: &Q) -> Result<Vec<(u64, T)>>
     where
         K: Borrow<Q>,
@@ -548,6 +575,7 @@ mod test {
         Ok(())
     }
 
+    #[test]
     fn test_equal_index() -> Result<()> {
         let mut table = Table::<String>::new();
 
@@ -558,22 +586,19 @@ mod test {
 
         assert_ne!(id1, id2);
 
-        assert_eq!(
-            vec![id1, id2],
-            content_index
-                .get_entries("hello")?
-                .into_iter()
-                .map(|(id, _)| id)
-                .collect::<Vec<_>>()
-        );
-        assert_eq!(
-            Vec::<u64>::new(),
-            content_index
-                .get_entries("goodbye")?
-                .into_iter()
-                .map(|(id, _)| id)
-                .collect::<Vec<_>>()
-        );
+        assert_eq!(vec![id1, id2], content_index.get_ids("hello")?);
+        assert_eq!(Vec::<u64>::new(), content_index.get_ids("goodbye")?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_unique_index() -> Result<()> {
+        let mut table = Table::<String>::new();
+
+        let _content_index = table.add_index_borrowed(Uniqueness::Unique, |v| v);
+
+        table.add("hello".to_string())?;
+        assert!(matches!(table.add("hello".to_string()), Err(Error::AlreadyExists)));
         Ok(())
     }
 }
