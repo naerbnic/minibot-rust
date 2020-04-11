@@ -1,12 +1,12 @@
-use minibot_common::proof_key;
+use futures::channel::oneshot;
 use futures::prelude::*;
+use futures::select;
+use minibot_common::proof_key;
 use serde::{Deserialize, Serialize};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use url::Url;
 use warp::Filter;
-use futures::channel::oneshot;
-use futures::select;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ClientError {
@@ -53,9 +53,7 @@ pub fn run_client<'a>(
     let auth_url = make_auth_url(auth_url, &addr, &challenge);
 
     (auth_url, async move {
-        let token = server
-            .await
-            .ok_or(ClientError::DidNotGetToken)?;
+        let token = server.await.ok_or(ClientError::DidNotGetToken)?;
 
         let exchange_url = Url::parse(exchange_url).unwrap();
         assert!(

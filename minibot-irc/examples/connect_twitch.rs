@@ -10,8 +10,7 @@ devsecrets::import_id!(DEVSECRETS_ID);
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let ds = devsecrets::DevSecrets::from_id(&DEVSECRETS_ID)
-        .unwrap();
+    let ds = devsecrets::DevSecrets::from_id(&DEVSECRETS_ID).unwrap();
     let key = ds.read_from("irc_key.txt").to_string().unwrap();
 
     if false {

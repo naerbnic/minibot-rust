@@ -1,8 +1,8 @@
 use super::simple_sender::SimpleSender;
 use futures::channel::mpsc;
 use futures::prelude::*;
-use std::sync::{Mutex, Arc};
 use std::mem;
+use std::sync::{Arc, Mutex};
 
 struct Inner<T> {
     sinks: Mutex<Vec<SimpleSender<T>>>,
@@ -32,8 +32,6 @@ impl<T: Clone> Inner<T> {
     }
 }
 
-
-
 pub struct EventSink<T> {
     inner: Arc<Inner<T>>,
     task_handle: tokio::task::JoinHandle<()>,
@@ -56,7 +54,7 @@ impl<T: Clone + Send + Sync + 'static> EventSink<T> {
             }
         });
 
-        EventSink { 
+        EventSink {
             inner: arc_inner,
             task_handle: handle,
         }

@@ -280,6 +280,9 @@ impl Client {
 
 impl Drop for Client {
     fn drop(&mut self) {
-        assert!(self.0.is_none(), "Client was dropped without being waited on.")
+        assert!(
+            self.0.is_none(),
+            "Client was dropped without being waited on."
+        )
     }
 }

@@ -1,7 +1,7 @@
-use reqwest::Client;
-use serde::{Serialize, Deserialize};
-use std::sync::Arc;
 use crate::handlers::OAuthConfig;
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 #[derive(Deserialize, Debug)]
 pub struct TokenResponse {
@@ -20,14 +20,12 @@ pub trait TwitchToken {
 
 pub struct TwitchTokenImpl {
     client: Arc<Client>,
-    config: Arc<OAuthConfig>
+    config: Arc<OAuthConfig>,
 }
 
 impl TwitchTokenImpl {
     pub fn new(client: Arc<Client>, config: Arc<OAuthConfig>) -> Self {
-        TwitchTokenImpl {
-            client, config
-        }
+        TwitchTokenImpl { client, config }
     }
 }
 
@@ -43,13 +41,18 @@ impl TwitchToken for TwitchTokenImpl {
             redirect_uri: &'a str,
         }
 
-        let response = self.client.post(&self.config.provider.token_endpoint).query(&TokenQuery {
-            client_id: &self.config.client.client_id,
-            client_secret: &self.config.client.client_secret,
-            code,
-            grant_type: "authorization_code",
-            redirect_uri: &self.config.client.redirect_url,
-        }).send().await?;
+        let response = self
+            .client
+            .post(&self.config.provider.token_endpoint)
+            .query(&TokenQuery {
+                client_id: &self.config.client.client_id,
+                client_secret: &self.config.client.client_secret,
+                code,
+                grant_type: "authorization_code",
+                redirect_uri: &self.config.client.redirect_url,
+            })
+            .send()
+            .await?;
 
         Ok(response.json().await?)
     }

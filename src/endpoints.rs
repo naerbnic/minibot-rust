@@ -82,10 +82,10 @@ pub mod callback {
 pub mod confirm {
     use crate::filters::cloned;
     use crate::handlers::OAuthConfig;
-    use crate::services::AuthConfirmService;
     use crate::services::twitch_token::TwitchTokenService;
+    use crate::services::AuthConfirmService;
     use minibot_common::proof_key;
-    use serde::{Serialize, Deserialize};
+    use serde::{Deserialize, Serialize};
     use std::sync::Arc;
     use warp::{path, post, query, Filter, Rejection};
 
@@ -106,7 +106,6 @@ pub mod confirm {
         twitch_token_service: &Arc<TwitchTokenService>,
         confirm: &Arc<AuthConfirmService>,
     ) -> anyhow::Result<impl warp::Reply> {
-
         #[derive(Deserialize, Debug)]
         struct TokenResponse {
             access_token: String,
@@ -119,7 +118,9 @@ pub mod confirm {
 
         let auth_confirm_info = confirm.from_token(&q.token).await?;
         proof_key::verify_challenge(&auth_confirm_info.challenge, &q.verifier)?;
-        let response = twitch_token_service.exchange_code(&auth_confirm_info.code).await?;
+        let response = twitch_token_service
+            .exchange_code(&auth_confirm_info.code)
+            .await?;
         log::info!("Retrieved token response: {:#?}", response);
 
         Ok("Hello!")

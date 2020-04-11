@@ -1,5 +1,4 @@
-use crate::util::table::{Index, Table, Error as TableError};
-
+use crate::util::table::{Error as TableError, Index, Table, Uniqueness};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -32,9 +31,12 @@ pub struct AccountService {
 impl AccountService {
     pub fn new() -> Self {
         let mut table = Table::new();
-        let streamer_user_id_index =
-            table.add_index_borrowed(|a: &Account| &a.streamer_account.user_id);
-        let bot_user_id_index = table.add_index_borrowed(|a| &a.bot_account.user_id);
+        let streamer_user_id_index = table
+            .add_index_borrowed(Uniqueness::NotUnique, |a: &Account| {
+                &a.streamer_account.user_id
+            });
+        let bot_user_id_index =
+            table.add_index_borrowed(Uniqueness::NotUnique, |a| &a.bot_account.user_id);
 
         AccountService {
             table,

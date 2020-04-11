@@ -17,7 +17,7 @@ pub struct Challenge(String);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct Verifier(String); 
+pub struct Verifier(String);
 
 pub fn generate_pair() -> (Challenge, Verifier) {
     let mut bytes = [0u8; 32];

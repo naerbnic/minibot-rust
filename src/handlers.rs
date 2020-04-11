@@ -1,6 +1,6 @@
 use crate::services::{AuthConfirmInfo, AuthConfirmService, AuthRequestInfo, AuthService};
-use minibot_common::proof_key;
 use anyhow::bail;
+use minibot_common::proof_key;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use url::Url;

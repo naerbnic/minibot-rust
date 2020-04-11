@@ -38,15 +38,61 @@ impl<T> AccessorResult<'_, T> {
     }
 }
 
+struct IndexSet<T>(Vec<Weak<dyn IndexUpdater<T>>>);
+
+impl<T> IndexSet<T> {
+    pub fn new() -> Self {
+        IndexSet(Vec::new())
+    }
+
+    fn retain_valid_indexes(&mut self) {
+        self.0.retain(|index| index.upgrade().is_some());
+    }
+
+    pub fn apply<F>(&mut self, check_f: F) -> Result<()>
+    where
+        F: Fn(&dyn IndexUpdater<T>) -> Result<()>,
+    {
+        for index in &mut self.0 {
+            if let Some(index) = index.upgrade() {
+                check_f(&*index)?;
+            }
+        }
+
+        self.retain_valid_indexes();
+
+        Ok(())
+    }
+}
+
+impl<T> IndexSet<T>
+where
+    T: Clone + Send + Sync + 'static,
+{
+    pub fn insert<K>(&mut self, index: &IndexStoreHandle<T, K>)
+    where
+        K: Ord + Sync + 'static,
+    {
+        let weak_handle = Arc::downgrade(index);
+        self.0.push(weak_handle);
+    }
+}
+
 // This is the core of the Table implementation, which requires a mutable reference to mutate it.
 struct TableCore<T> {
     next_id: u64,
     rows: BTreeMap<u64, T>,
-    indexes: Vec<Weak<dyn IndexUpdater<T>>>,
+    indexes: IndexSet<T>,
 }
 
 /// An internal trait that allows a table to update an index.
+///
+/// Each operation returns a boxed operation which allows for a rollback for this operation
 trait IndexUpdater<T> {
+    fn check_add(&self, rows: &BTreeMap<u64, T>, value: &T) -> Result<()>;
+    fn check_update(&self, rows: &BTreeMap<u64, T>, id: u64, new_value: &T) -> Result<()>;
+    fn check_remove(&self, rows: &BTreeMap<u64, T>, id: u64) -> Result<()>;
+
     fn add_entry(&self, rows: &BTreeMap<u64, T>, id: u64) -> Result<()>;
     fn update_entry(&self, rows: &BTreeMap<u64, T>, id: u64, old_entry: &T) -> Result<()>;
     fn remove_entry(&self, rows: &BTreeMap<u64, T>, id: u64) -> Result<()>;
@@ -57,36 +103,22 @@ impl<T: Clone> TableCore<T> {
         TableCore {
             next_id: 0,
             rows: BTreeMap::new(),
-            indexes: Vec::new(),
+            indexes: IndexSet::new(),
         }
-    }
-
-    fn apply_to_indexes<F>(&mut self, f: F) -> Result<()>
-    where
-        F: Fn(&BTreeMap<u64, T>, &dyn IndexUpdater<T>) -> Result<()>,
-    {
-        for index in &mut self.indexes {
-            if let Some(index) = index.upgrade() {
-                f(&self.rows, &*index)?;
-            }
-        }
-
-        self.retain_valid_indexes();
-
-        Ok(())
-    }
-
-    fn retain_valid_indexes(&mut self) {
-        self.indexes.retain(|index| index.upgrade().is_some());
     }
 
     fn add_entry(&mut self, value: T) -> Result<u64> {
         let new_id = self.next_id;
-        self.next_id += 1;
+        if self.rows.contains_key(&new_id) {
+            return Err(Error::AlreadyExists);
+        }
+
+        let rows = &self.rows;
+        self.indexes.apply(|index| index.check_add(rows, &value))?;
         self.rows.insert(new_id, value);
-
-        self.apply_to_indexes(|rows, index| index.add_entry(rows, new_id))?;
-
+        self.next_id += 1;
+        let rows = &self.rows;
+        self.indexes.apply(|index| index.add_entry(rows, new_id))?;
         Ok(new_id)
     }
 
@@ -95,30 +127,43 @@ impl<T: Clone> TableCore<T> {
     }
 
     fn update_entry(&mut self, id: u64, value: T) -> Result<()> {
-        match self.rows.insert(id, value) {
-            Some(old) => {
-                self.apply_to_indexes(|rows, index| index.update_entry(rows, id, &old))?;
-                Ok(())
-            }
-            None => {
-                self.rows.remove(&id).unwrap();
-                return Err(Error::UpdatedNonexistentEntry(id));
-            }
+        if !self.rows.contains_key(&id) {
+            return Err(Error::UpdatedNonexistentEntry(id));
         }
+
+        let rows = &self.rows;
+        self.indexes
+            .apply(|index| index.check_update(rows, id, &value))?;
+        let old = self.rows.insert(id, value).unwrap();
+        let rows = &self.rows;
+        self.indexes
+            .apply(|index| index.update_entry(rows, id, &old))?;
+
+        Ok(())
     }
 
     fn remove_entry(&mut self, id: u64) -> Result<T> {
         if !self.rows.contains_key(&id) {
             return Err(Error::RemovingNonexistentId(id));
         }
-        self.apply_to_indexes(|rows, index| index.remove_entry(rows, id))?;
+
+        let rows = &self.rows;
+        self.indexes.apply(|index| index.check_remove(rows, id))?;
+        self.indexes.apply(|index| index.remove_entry(rows, id))?;
         Ok(self.rows.remove(&id).unwrap())
     }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum Uniqueness {
+    Unique,
+    NotUnique,
 }
 
 struct IndexStore<T, K> {
     accessor: Box<dyn for<'a> Fn(&'a T) -> AccessorResult<'a, K> + Send + Sync>,
     entries: Vec<u64>,
+    unique: Uniqueness,
 }
 
 impl<T, K> IndexStore<T, K>
@@ -174,6 +219,43 @@ where
         let range = self.find_range(rows, value);
 
         Ok(self.entries[range].iter().copied().collect())
+    }
+
+    fn check_add(&self, rows: &BTreeMap<u64, T>, value: &T) -> Result<()> {
+        if let Uniqueness::NotUnique = self.unique {
+            let new_entry_key_cow = (self.accessor)(value);
+            let new_entry_key = new_entry_key_cow.as_ref();
+            let range = self.find_range(rows, new_entry_key);
+
+            if range.len() != 0 {
+                return Err(Error::AlreadyExists);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn check_update(&self, rows: &BTreeMap<u64, T>, id: u64, new_value: &T) -> Result<()> {
+        if let Uniqueness::NotUnique = self.unique {
+            let new_entry_key_cow = (self.accessor)(new_value);
+            let new_entry_key = new_entry_key_cow.as_ref();
+            let range = self.find_range(rows, new_entry_key);
+
+            if range.len() != 0 {
+                assert_eq!(range.len(), 1);
+                // It can only exist if the only equal value is the same id, since removing it
+                // will make it empty, and ensure uniqueness again.
+                if self.entries[range][0] != id {
+                    return Err(Error::AlreadyExists);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn check_remove(&self, _rows: &BTreeMap<u64, T>, _id: u64) -> Result<()> {
+        Ok(())
     }
 
     fn add_entry(&mut self, rows: &BTreeMap<u64, T>, id: u64) -> Result<()> {
@@ -251,6 +333,21 @@ where
     T: Send + Sync,
     K: Ord + Sync + 'static,
 {
+    fn check_add(&self, rows: &BTreeMap<u64, T>, value: &T) -> Result<()> {
+        let guard = self.read().unwrap();
+        guard.check_add(rows, value)
+    }
+
+    fn check_update(&self, rows: &BTreeMap<u64, T>, id: u64, new_value: &T) -> Result<()> {
+        let guard = self.read().unwrap();
+        guard.check_update(rows, id, new_value)
+    }
+
+    fn check_remove(&self, rows: &BTreeMap<u64, T>, id: u64) -> Result<()> {
+        let guard = self.read().unwrap();
+        guard.check_remove(rows, id)
+    }
+
     fn add_entry(&self, rows: &BTreeMap<u64, T>, id: u64) -> Result<()> {
         let mut guard = self.write().unwrap();
         guard.add_entry(rows, id)
@@ -272,7 +369,10 @@ type IndexStoreHandle<T, K> = Arc<RwLock<IndexStore<T, K>>>;
 
 pub struct Table<T>(TableCoreHandle<T>);
 
-impl<T> Table<T> where T: Clone + Send + Sync + 'static {
+impl<T> Table<T>
+where
+    T: Clone + Send + Sync + 'static,
+{
     pub fn new() -> Self {
         Table(Arc::new(RwLock::new(TableCore::new())))
     }
@@ -297,7 +397,7 @@ impl<T> Table<T> where T: Clone + Send + Sync + 'static {
         guard.remove_entry(id)
     }
 
-    fn add_index_inner<F, K>(&mut self, accessor: F) -> Index<T, K>
+    fn add_index_inner<F, K>(&mut self, unique: Uniqueness, accessor: F) -> Index<T, K>
     where
         F: for<'a> Fn(&'a T) -> AccessorResult<'a, K> + Send + Sync + 'static,
         K: Ord + Sync + 'static,
@@ -312,13 +412,12 @@ impl<T> Table<T> where T: Clone + Send + Sync + 'static {
         let store = IndexStore {
             accessor: Box::new(accessor),
             entries,
+            unique,
         };
 
         let store_handle = Arc::new(RwLock::new(store));
 
-        let weak_store_handle = Arc::downgrade(&store_handle);
-
-        guard.indexes.push(weak_store_handle);
+        guard.indexes.insert(&store_handle);
 
         Index {
             table: new_table_handle,
@@ -326,20 +425,20 @@ impl<T> Table<T> where T: Clone + Send + Sync + 'static {
         }
     }
 
-    pub fn add_index_borrowed<F, K>(&mut self, accessor: F) -> Index<T, K>
+    pub fn add_index_borrowed<F, K>(&mut self, unique: Uniqueness, accessor: F) -> Index<T, K>
     where
         F: for<'a> Fn(&'a T) -> &K + Send + Sync + 'static,
         K: Ord + Sync + 'static,
     {
-        self.add_index_inner(move |t| AccessorResult::Borrowed(accessor(t)))
+        self.add_index_inner(unique, move |t| AccessorResult::Borrowed(accessor(t)))
     }
 
-    pub fn add_index_owned<F, K>(&mut self, accessor: F) -> Index<T, K>
+    pub fn add_index_owned<F, K>(&mut self, unique: Uniqueness, accessor: F) -> Index<T, K>
     where
         F: for<'a> Fn(&'a T) -> K + Send + Sync + 'static,
         K: Ord + Sync + 'static,
     {
-        self.add_index_inner(move |t| -> AccessorResult<K> {
+        self.add_index_inner(unique, move |t| -> AccessorResult<K> {
             AccessorResult::Owned(accessor(t))
         })
     }
@@ -397,13 +496,27 @@ mod test {
     #[test]
     fn test_index_lookup() -> Result<()> {
         let mut table = Table::<String>::new();
-        let content_index = table.add_index_borrowed(|v| v);
+        let content_index = table.add_index_borrowed(Uniqueness::NotUnique, |v| v);
 
         let id1 = table.add("hello".to_string())?;
         let id2 = table.add("goodbye".to_string())?;
 
-        assert_eq!(vec![id1], content_index.get_entries("hello")?.into_iter().map(|(id, _)| id).collect::<Vec<_>>());
-        assert_eq!(vec![id2], content_index.get_entries("goodbye")?.into_iter().map(|(id, _)| id).collect::<Vec<_>>());
+        assert_eq!(
+            vec![id1],
+            content_index
+                .get_entries("hello")?
+                .into_iter()
+                .map(|(id, _)| id)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            vec![id2],
+            content_index
+                .get_entries("goodbye")?
+                .into_iter()
+                .map(|(id, _)| id)
+                .collect::<Vec<_>>()
+        );
         Ok(())
     }
 
@@ -414,25 +527,53 @@ mod test {
         let id1 = table.add("hello".to_string())?;
         let id2 = table.add("goodbye".to_string())?;
 
-        let content_index = table.add_index_borrowed(|v| v);
+        let content_index = table.add_index_borrowed(Uniqueness::NotUnique, |v| v);
 
-        assert_eq!(vec![id1], content_index.get_entries("hello")?.into_iter().map(|(id, _)| id).collect::<Vec<_>>());
-        assert_eq!(vec![id2], content_index.get_entries("goodbye")?.into_iter().map(|(id, _)| id).collect::<Vec<_>>());
+        assert_eq!(
+            vec![id1],
+            content_index
+                .get_entries("hello")?
+                .into_iter()
+                .map(|(id, _)| id)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            vec![id2],
+            content_index
+                .get_entries("goodbye")?
+                .into_iter()
+                .map(|(id, _)| id)
+                .collect::<Vec<_>>()
+        );
         Ok(())
     }
 
     fn test_equal_index() -> Result<()> {
         let mut table = Table::<String>::new();
 
-        let content_index = table.add_index_borrowed(|v| v);
+        let content_index = table.add_index_borrowed(Uniqueness::NotUnique, |v| v);
 
         let id1 = table.add("hello".to_string())?;
         let id2 = table.add("hello".to_string())?;
 
         assert_ne!(id1, id2);
 
-        assert_eq!(vec![id1, id2], content_index.get_entries("hello")?.into_iter().map(|(id, _)| id).collect::<Vec<_>>());
-        assert_eq!(Vec::<u64>::new(), content_index.get_entries("goodbye")?.into_iter().map(|(id, _)| id).collect::<Vec<_>>());
+        assert_eq!(
+            vec![id1, id2],
+            content_index
+                .get_entries("hello")?
+                .into_iter()
+                .map(|(id, _)| id)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            Vec::<u64>::new(),
+            content_index
+                .get_entries("goodbye")?
+                .into_iter()
+                .map(|(id, _)| id)
+                .collect::<Vec<_>>()
+        );
         Ok(())
     }
 }
