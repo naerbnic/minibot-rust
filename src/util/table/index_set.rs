@@ -15,7 +15,7 @@ pub trait IndexUpdater<T> {
     fn remove_entry(&self, rows: &BTreeMap<u64, T>, id: u64) -> Result<()>;
 }
 
-pub struct IndexSet<T>(Vec<Weak<dyn IndexUpdater<T>>>);
+pub struct IndexSet<T>(Vec<Weak<dyn IndexUpdater<T> + Send + Sync>>);
 
 impl<T> IndexSet<T> {
     pub fn new() -> Self {
@@ -48,7 +48,7 @@ where
 {
     pub fn insert<H>(&mut self, index: &Arc<H>)
     where
-        H: IndexUpdater<T> + 'static,
+        H: IndexUpdater<T> + Send + Sync + 'static,
     {
         let weak_handle = Arc::downgrade(index);
         self.0.push(weak_handle);
