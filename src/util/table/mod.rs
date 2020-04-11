@@ -60,7 +60,11 @@ where
         })
     }
 
-    pub fn add_index_borrowed<F, K>(&mut self, unique: Uniqueness, accessor: F) -> Result<Index<T, K>>
+    pub fn add_index_borrowed<F, K>(
+        &mut self,
+        unique: Uniqueness,
+        accessor: F,
+    ) -> Result<Index<T, K>>
     where
         F: for<'a> Fn(&'a T) -> &K + Send + Sync + 'static,
         K: Ord + Sync + 'static,

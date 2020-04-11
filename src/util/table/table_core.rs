@@ -14,7 +14,10 @@ pub struct TableCore<T> {
     indexes: IndexSet<T>,
 }
 
-impl<T> TableCore<T> where T: Clone + Send + Sync + 'static {
+impl<T> TableCore<T>
+where
+    T: Clone + Send + Sync + 'static,
+{
     pub fn new() -> Self {
         TableCore {
             next_id: 0,
@@ -23,7 +26,9 @@ impl<T> TableCore<T> where T: Clone + Send + Sync + 'static {
         }
     }
 
-    pub fn rows(&self) -> &BTreeMap<u64, T> { &self.rows }
+    pub fn rows(&self) -> &BTreeMap<u64, T> {
+        &self.rows
+    }
 
     pub fn add_entry(&mut self, value: T) -> Result<u64> {
         let new_id = self.next_id;
