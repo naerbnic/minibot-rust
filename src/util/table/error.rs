@@ -1,3 +1,4 @@
+#[non_exhaustive]
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("Unknown index: {0}")]

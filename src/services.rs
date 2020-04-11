@@ -1,11 +1,13 @@
 use async_trait::async_trait;
 use minibot_common::proof_key::Challenge;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::sync::Arc;
+use serde::{Deserialize, Serialize};
 
 pub mod account;
+pub mod token_service;
 pub mod twitch;
 pub mod twitch_token;
+
+use token_service::TokenService;
 
 /// Info stored between the post to the minibot auth exchange start and the
 /// OAuth2 redirect response.
@@ -16,20 +18,6 @@ pub struct AuthRequestInfo {
 
     /// The challenge string provided by a user.
     pub challenge: Challenge,
-}
-
-/// A service that stores/converts `AuthRequestInfo` to and from a string token.
-#[async_trait]
-pub trait TokenService<T>: Sync {
-    /// Return a token for the given info value. This token must be a url-safe
-    /// string. `self.from_token()` must return the same value.
-    async fn to_token(&self, value: T) -> Result<String, anyhow::Error>;
-
-    /// Return a value of type T for a given token.
-    ///
-    /// A real implementation must ensure that the token has not been modified
-    /// externally, or return an error otherwise.
-    async fn from_token(&self, token: &str) -> Result<T, anyhow::Error>;
 }
 
 pub type AuthService = dyn TokenService<AuthRequestInfo> + Send + Sync;
@@ -55,35 +43,4 @@ pub type AuthConfirmService = dyn TokenService<AuthConfirmInfo> + Send + Sync;
 pub struct IdentityInfo {
     twitch_id: String,
     twitch_auth_token: String,
-}
-
-pub struct SerdeTokenService<T>
-where
-    T: Serialize + DeserializeOwned + Sync + Send,
-{
-    _data: std::marker::PhantomData<T>,
-}
-
-impl<T: Serialize + DeserializeOwned + Sync + Send + 'static> SerdeTokenService<T> {
-    pub fn new() -> Arc<dyn TokenService<T> + Send + Sync> {
-        Arc::new(SerdeTokenService {
-            _data: std::marker::PhantomData {},
-        })
-    }
-}
-
-#[async_trait]
-impl<T: Serialize + DeserializeOwned + Sync + Send> TokenService<T> for SerdeTokenService<T> {
-    async fn to_token(&self, value: T) -> Result<String, anyhow::Error> {
-        Ok(base64::encode_config(
-            &serde_json::to_string(&value)?,
-            base64::URL_SAFE_NO_PAD,
-        ))
-    }
-    async fn from_token(&self, token: &str) -> Result<T, anyhow::Error> {
-        Ok(serde_json::from_slice(&base64::decode_config(
-            token,
-            base64::URL_SAFE_NO_PAD,
-        )?)?)
-    }
 }

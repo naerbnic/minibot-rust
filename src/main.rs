@@ -8,7 +8,9 @@ mod services;
 mod util;
 
 use handlers::{OAuthClientInfo, OAuthConfig};
-use services::{twitch_token, AuthConfirmService, AuthService, SerdeTokenService};
+use services::{
+    token_service::serde::SerdeTokenService, twitch_token, AuthConfirmService, AuthService,
+};
 use std::sync::Arc;
 use warp::Filter;
 
