@@ -26,10 +26,10 @@ impl<T: Serialize + DeserializeOwned + Sync + Send> TokenService<T> for SerdeTok
             base64::URL_SAFE_NO_PAD,
         ))
     }
-    async fn from_token(&self, token: &str) -> Result<T, anyhow::Error> {
-        Ok(serde_json::from_slice(&base64::decode_config(
+    async fn from_token(&self, token: &str) -> Result<Option<T>, anyhow::Error> {
+        Ok(Some(serde_json::from_slice(&base64::decode_config(
             token,
             base64::URL_SAFE_NO_PAD,
-        )?)?)
+        )?)?))
     }
 }

@@ -15,7 +15,7 @@ pub trait TokenService<T>: Sync {
     ///
     /// A real implementation must ensure that the token has not been modified
     /// externally, or return an error otherwise.
-    async fn from_token(&self, token: &str) -> anyhow::Result<T>;
+    async fn from_token(&self, token: &str) -> anyhow::Result<Option<T>>;
 }
 
 pub type TokenServiceHandle<T> = Arc<dyn TokenService<T> + Send + Sync>;

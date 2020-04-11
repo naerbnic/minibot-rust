@@ -52,11 +52,11 @@ where
     ///
     /// A real implementation must ensure that the token has not been modified
     /// externally, or return an error otherwise.
-    async fn from_token(&self, token: &str) -> anyhow::Result<T> {
+    async fn from_token(&self, token: &str) -> anyhow::Result<Option<T>> {
         let mut values = self.token_index.get_values(token)?;
         match values.pop() {
-            Some(entry) => Ok(entry.value),
-            None => anyhow::bail!("Expected a token to exist."),
+            Some(entry) => Ok(Some(entry.value)),
+            None => Ok(None),
         }
     }
 }

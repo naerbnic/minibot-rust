@@ -83,7 +83,10 @@ pub async fn handle_oauth_callback(
     auth_service: TokenServiceHandle<AuthRequestInfo>,
     auth_confirm_service: TokenServiceHandle<AuthConfirmInfo>,
 ) -> Result<impl warp::Reply, anyhow::Error> {
-    let auth_req = auth_service.from_token(&state).await?;
+    let auth_req = match auth_service.from_token(&state).await? {
+        Some(auth_req) => auth_req,
+        None => anyhow::bail!("Could not retrieve token."),
+    };
 
     let confirm_info = AuthConfirmInfo {
         code,
@@ -119,7 +122,10 @@ pub async fn handle_confirm(
     auth_confirm_service: TokenServiceHandle<AuthConfirmInfo>,
     oauth_config: Arc<OAuthConfig>,
 ) -> Result<TokenResponse, anyhow::Error> {
-    let auth_complete_info = auth_confirm_service.from_token(&token).await?;
+    let auth_complete_info = match auth_confirm_service.from_token(&token).await? {
+        Some(info) => info,
+        None => anyhow::bail!("Could not retrieve token."),
+    };
     proof_key::verify_challenge(&auth_complete_info.challenge, &verifier)?;
     // Now that we're all verified, finish the key exchange
 

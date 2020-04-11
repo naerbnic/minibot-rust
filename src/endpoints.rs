@@ -114,7 +114,10 @@ pub mod confirm {
             token_type: String,
         }
 
-        let auth_confirm_info = confirm.from_token(&q.token).await?;
+        let auth_confirm_info = match confirm.from_token(&q.token).await? {
+            Some(info) => info,
+            None => anyhow::bail!("Could not find confirmation."),
+        };
         proof_key::verify_challenge(&auth_confirm_info.challenge, &q.verifier)?;
         let response = twitch_token_service
             .exchange_code(&auth_confirm_info.code)
