@@ -57,7 +57,7 @@ impl<T, K> IndexStore<T, K>
 where
     K: Ord,
 {
-    pub fn new<F>(rows: &BTreeMap<u64, T>, unique: Uniqueness, accessor: F) -> Self
+    pub fn new<F>(rows: &BTreeMap<u64, T>, unique: Uniqueness, accessor: F) -> Result<Self>
     where
         F: for<'a> Fn(&'a T) -> AccessorResult<'a, K> + Send + Sync + 'static,
     {
@@ -65,11 +65,11 @@ where
 
         entries.sort_by(entry_cmp(&accessor, &rows));
 
-        IndexStore {
+        Ok(IndexStore {
             accessor: Box::new(accessor),
             entries,
             unique,
-        }
+        })
     }
 
     fn find_range<Q>(&self, rows: &BTreeMap<u64, T>, key: &Q) -> std::ops::Range<usize>

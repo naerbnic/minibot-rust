@@ -29,20 +29,20 @@ pub struct AccountService {
 }
 
 impl AccountService {
-    pub fn new() -> Self {
+    pub fn new() -> Result<Self> {
         let mut table = Table::new();
         let streamer_user_id_index = table
             .add_index_borrowed(Uniqueness::NotUnique, |a: &Account| {
                 &a.streamer_account.user_id
-            });
+            })?;
         let bot_user_id_index =
-            table.add_index_borrowed(Uniqueness::NotUnique, |a| &a.bot_account.user_id);
+            table.add_index_borrowed(Uniqueness::NotUnique, |a| &a.bot_account.user_id)?;
 
-        AccountService {
+        Ok(AccountService {
             table,
             streamer_user_id_index,
             bot_user_id_index,
-        }
+        })
     }
 
     pub async fn create_account(&self, acct: Account) -> Result<u64> {

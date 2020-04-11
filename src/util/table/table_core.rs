@@ -77,17 +77,17 @@ impl<T> TableCore<T> where T: Clone + Send + Sync + 'static {
         &mut self,
         unique: Uniqueness,
         accessor: F,
-    ) -> Arc<RwLock<IndexStore<T, K>>>
+    ) -> Result<Arc<RwLock<IndexStore<T, K>>>>
     where
         F: for<'a> Fn(&'a T) -> AccessorResult<'a, K> + Send + Sync + 'static,
         K: Ord + Sync + 'static,
     {
-        let store = IndexStore::new(&self.rows, unique, accessor);
+        let store = IndexStore::new(&self.rows, unique, accessor)?;
 
         let store_handle = Arc::new(RwLock::new(store));
 
         self.indexes.insert(&store_handle);
 
-        store_handle
+        Ok(store_handle)
     }
 }

@@ -15,7 +15,6 @@ use std::sync::{Arc, RwLock};
 
 type TableCoreHandle<T> = Arc<RwLock<TableCore<T>>>;
 type IndexStoreHandle<T, K> = Arc<RwLock<IndexStore<T, K>>>;
-
 pub struct Table<T>(TableCoreHandle<T>);
 
 impl<T> Table<T>
@@ -46,22 +45,22 @@ where
         guard.remove_entry(id)
     }
 
-    fn add_index_inner<F, K>(&mut self, unique: Uniqueness, accessor: F) -> Index<T, K>
+    fn add_index_inner<F, K>(&mut self, unique: Uniqueness, accessor: F) -> Result<Index<T, K>>
     where
         F: for<'a> Fn(&'a T) -> AccessorResult<'a, K> + Send + Sync + 'static,
         K: Ord + Sync + 'static,
     {
         let new_table_handle = self.0.clone();
         let mut guard = self.0.write().unwrap();
-        let store_handle = guard.add_index_inner(unique, accessor);
+        let store_handle = guard.add_index_inner(unique, accessor)?;
 
-        Index {
+        Ok(Index {
             table: new_table_handle,
             index: store_handle,
-        }
+        })
     }
 
-    pub fn add_index_borrowed<F, K>(&mut self, unique: Uniqueness, accessor: F) -> Index<T, K>
+    pub fn add_index_borrowed<F, K>(&mut self, unique: Uniqueness, accessor: F) -> Result<Index<T, K>>
     where
         F: for<'a> Fn(&'a T) -> &K + Send + Sync + 'static,
         K: Ord + Sync + 'static,
@@ -69,7 +68,7 @@ where
         self.add_index_inner(unique, move |t| AccessorResult::Borrowed(accessor(t)))
     }
 
-    pub fn add_index_owned<F, K>(&mut self, unique: Uniqueness, accessor: F) -> Index<T, K>
+    pub fn add_index_owned<F, K>(&mut self, unique: Uniqueness, accessor: F) -> Result<Index<T, K>>
     where
         F: for<'a> Fn(&'a T) -> K + Send + Sync + 'static,
         K: Ord + Sync + 'static,
@@ -164,7 +163,7 @@ mod test {
     #[test]
     fn test_index_lookup() -> Result<()> {
         let mut table = Table::<String>::new();
-        let content_index = table.add_index_borrowed(Uniqueness::NotUnique, |v| v);
+        let content_index = table.add_index_borrowed(Uniqueness::NotUnique, |v| v)?;
 
         let id1 = table.add("hello".to_string())?;
         let id2 = table.add("goodbye".to_string())?;
@@ -195,7 +194,7 @@ mod test {
         let id1 = table.add("hello".to_string())?;
         let id2 = table.add("goodbye".to_string())?;
 
-        let content_index = table.add_index_borrowed(Uniqueness::NotUnique, |v| v);
+        let content_index = table.add_index_borrowed(Uniqueness::NotUnique, |v| v)?;
 
         assert_eq!(
             vec![id1],
@@ -220,7 +219,7 @@ mod test {
     fn test_equal_index() -> Result<()> {
         let mut table = Table::<String>::new();
 
-        let content_index = table.add_index_borrowed(Uniqueness::NotUnique, |v| v);
+        let content_index = table.add_index_borrowed(Uniqueness::NotUnique, |v| v)?;
 
         let id1 = table.add("hello".to_string())?;
         let id2 = table.add("hello".to_string())?;
@@ -236,7 +235,7 @@ mod test {
     fn test_unique_index() -> Result<()> {
         let mut table = Table::<String>::new();
 
-        let _content_index = table.add_index_borrowed(Uniqueness::Unique, |v| v);
+        let _content_index = table.add_index_borrowed(Uniqueness::Unique, |v| v)?;
 
         table.add("hello".to_string())?;
         assert!(matches!(
