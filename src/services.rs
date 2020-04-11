@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use minibot_common::proof_key::Challenge;
 use serde::{Deserialize, Serialize};
 
@@ -6,8 +5,6 @@ pub mod account;
 pub mod token_service;
 pub mod twitch;
 pub mod twitch_token;
-
-use token_service::TokenService;
 
 /// Info stored between the post to the minibot auth exchange start and the
 /// OAuth2 redirect response.
@@ -19,8 +16,6 @@ pub struct AuthRequestInfo {
     /// The challenge string provided by a user.
     pub challenge: Challenge,
 }
-
-pub type AuthService = dyn TokenService<AuthRequestInfo> + Send + Sync;
 
 /// Info stored between returning the token via redirect to the user and the
 /// user submitting the token to the account-create/bot-add endpoint with the
@@ -36,8 +31,6 @@ pub struct AuthConfirmInfo {
     /// person who requested it.
     pub challenge: Challenge,
 }
-
-pub type AuthConfirmService = dyn TokenService<AuthConfirmInfo> + Send + Sync;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct IdentityInfo {

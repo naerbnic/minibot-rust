@@ -1,7 +1,7 @@
 pub mod login {
     use crate::filters::cloned;
     use crate::handlers::{handle_start_auth_request, OAuthConfig};
-    use crate::services::AuthService;
+    use crate::services::{token_service::TokenServiceHandle, AuthRequestInfo};
     use futures::prelude::*;
     use minibot_common::proof_key::Challenge;
     use serde::Deserialize;
@@ -21,7 +21,7 @@ pub mod login {
 
     pub fn endpoint(
         oauth_config: Arc<OAuthConfig>,
-        auth_service: Arc<AuthService>,
+        auth_service: TokenServiceHandle<AuthRequestInfo>,
     ) -> impl Filter<Extract = impl warp::Reply, Error = Rejection> + Clone {
         path!("login")
             .and(get())
@@ -44,11 +44,10 @@ pub mod login {
 pub mod callback {
     use crate::filters::cloned;
     use crate::handlers::handle_oauth_callback;
-    use crate::services::{AuthConfirmService, AuthService};
+    use crate::services::{token_service::TokenServiceHandle, AuthRequestInfo, AuthConfirmInfo};
     use crate::util::types::OAuthScopeList;
     use futures::prelude::*;
     use serde::Deserialize;
-    use std::sync::Arc;
     use warp::{get, path, query, Filter, Rejection};
 
     #[derive(Deserialize, Debug)]
@@ -64,8 +63,8 @@ pub mod callback {
     impl warp::reject::Reject for Error {}
 
     pub fn endpoint(
-        auth_service: Arc<AuthService>,
-        confirm_service: Arc<AuthConfirmService>,
+        auth_service: TokenServiceHandle<AuthRequestInfo>,
+        confirm_service: TokenServiceHandle<AuthConfirmInfo>,
     ) -> impl Filter<Extract = impl warp::Reply, Error = Rejection> + Clone {
         path!("callback")
             .and(get())
@@ -81,11 +80,10 @@ pub mod callback {
 
 pub mod confirm {
     use crate::filters::cloned;
-    use crate::handlers::OAuthConfig;
     use crate::services::twitch_token::TwitchTokenService;
-    use crate::services::AuthConfirmService;
+    use crate::services::{token_service::TokenServiceHandle, AuthConfirmInfo};
     use minibot_common::proof_key;
-    use serde::{Deserialize, Serialize};
+    use serde::Deserialize;
     use std::sync::Arc;
     use warp::{path, post, query, Filter, Rejection};
 
@@ -104,7 +102,7 @@ pub mod confirm {
     async fn handle_endpoint(
         q: &Query,
         twitch_token_service: &Arc<TwitchTokenService>,
-        confirm: &Arc<AuthConfirmService>,
+        confirm: &TokenServiceHandle<AuthConfirmInfo>,
     ) -> anyhow::Result<impl warp::Reply> {
         #[derive(Deserialize, Debug)]
         struct TokenResponse {
@@ -128,7 +126,7 @@ pub mod confirm {
 
     pub fn endpoint(
         twitch_token_service: Arc<TwitchTokenService>,
-        confirm_service: Arc<AuthConfirmService>,
+        confirm_service: TokenServiceHandle<AuthConfirmInfo>,
     ) -> impl Filter<Extract = impl warp::Reply, Error = Rejection> + Clone {
         path!("confirm")
             .and(post())
@@ -136,7 +134,7 @@ pub mod confirm {
             .and(cloned(twitch_token_service))
             .and(cloned(confirm_service))
             .and_then(
-                |q: Query, twitch_config, confirm: Arc<AuthConfirmService>| async move {
+                |q: Query, twitch_config, confirm| async move {
                     handle_endpoint(&q, &twitch_config, &confirm)
                         .await
                         .map_err(|e| warp::reject::custom(Error(e)))

@@ -1,6 +1,7 @@
-pub mod serde;
+mod serde;
 
 use async_trait::async_trait;
+use std::sync::Arc;
 
 /// A service that stores/converts `AuthRequestInfo` to and from a string token.
 #[async_trait]
@@ -14,4 +15,13 @@ pub trait TokenService<T>: Sync {
     /// A real implementation must ensure that the token has not been modified
     /// externally, or return an error otherwise.
     async fn from_token(&self, token: &str) -> anyhow::Result<T>;
+}
+
+pub type TokenServiceHandle<T> = Arc<dyn TokenService<T> + Send + Sync>;
+
+pub fn create_serde<T>() -> TokenServiceHandle<T>
+where
+    T: ::serde::Serialize + ::serde::de::DeserializeOwned + Send + Sync + 'static,
+{
+    serde::SerdeTokenService::new()
 }

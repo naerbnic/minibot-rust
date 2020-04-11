@@ -1,4 +1,4 @@
-use crate::services::{AuthConfirmInfo, AuthConfirmService, AuthRequestInfo, AuthService};
+use crate::services::{token_service::TokenServiceHandle, AuthConfirmInfo, AuthRequestInfo};
 use anyhow::bail;
 use minibot_common::proof_key;
 use serde::{Deserialize, Serialize};
@@ -48,7 +48,7 @@ impl OAuthConfig {
 pub async fn handle_start_auth_request(
     redirect_uri: String,
     challenge: proof_key::Challenge,
-    auth_service: Arc<AuthService>,
+    auth_service: TokenServiceHandle<AuthRequestInfo>,
     oauth_config: Arc<OAuthConfig>,
 ) -> Result<impl warp::Reply, anyhow::Error> {
     let url = Url::parse(&*redirect_uri)?;
@@ -80,8 +80,8 @@ pub async fn handle_start_auth_request(
 pub async fn handle_oauth_callback(
     code: String,
     state: String,
-    auth_service: Arc<AuthService>,
-    auth_confirm_service: Arc<AuthConfirmService>,
+    auth_service: TokenServiceHandle<AuthRequestInfo>,
+    auth_confirm_service: TokenServiceHandle<AuthConfirmInfo>,
 ) -> Result<impl warp::Reply, anyhow::Error> {
     let auth_req = auth_service.from_token(&state).await?;
 
@@ -116,7 +116,7 @@ pub struct TokenResponse {
 pub async fn handle_confirm(
     token: String,
     verifier: proof_key::Verifier,
-    auth_confirm_service: Arc<AuthConfirmService>,
+    auth_confirm_service: TokenServiceHandle<AuthConfirmInfo>,
     oauth_config: Arc<OAuthConfig>,
 ) -> Result<TokenResponse, anyhow::Error> {
     let auth_complete_info = auth_confirm_service.from_token(&token).await?;

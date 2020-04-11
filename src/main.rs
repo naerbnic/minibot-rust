@@ -9,7 +9,8 @@ mod util;
 
 use handlers::{OAuthClientInfo, OAuthConfig};
 use services::{
-    token_service::serde::SerdeTokenService, twitch_token, AuthConfirmService, AuthService,
+    token_service::{create_serde, TokenServiceHandle},
+    twitch_token, AuthConfirmInfo, AuthRequestInfo,
 };
 use std::sync::Arc;
 use warp::Filter;
@@ -38,8 +39,8 @@ async fn main() {
 
     let reqwest_client = Arc::new(reqwest::Client::new());
 
-    let auth_service: Arc<AuthService> = SerdeTokenService::new();
-    let auth_confirm_service: Arc<AuthConfirmService> = SerdeTokenService::new();
+    let auth_service: TokenServiceHandle<AuthRequestInfo> = create_serde();
+    let auth_confirm_service: TokenServiceHandle<AuthConfirmInfo> = create_serde();
     let twitch_token_service =
         twitch_token::create_service(reqwest_client.clone(), twitch_config.clone());
 
