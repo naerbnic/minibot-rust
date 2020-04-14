@@ -1,0 +1,6 @@
+# For documentation on how to configure this file,
+# see diesel.rs/guides/configuring-diesel-cli
+
+[print_schema]
+# Disable automatic generation. Instead use `diesel print-schema > src/schema.rs` and patch manually.
+# file = "src/schema.rs"

@@ -5,7 +5,7 @@ name = "minibot"
 version = "0.1.0"
 
 [workspace]
-members = ["minibot-irc", "minibot-client", "minibot-common", "minibot-client-cli"]
+members = ["minibot-irc", "minibot-client", "minibot-common", "minibot-client-cli", "minibot-db-sqlite"]
 
 [dependencies]
 anyhow = "*"
