@@ -1,13 +1,13 @@
+#![allow(dead_code)]
+
 #[macro_use]
 extern crate diesel;
+#[macro_use]
+extern crate diesel_migrations;
 
+mod crud;
+mod db_handle;
+mod model;
 mod schema;
-mod models;
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
-}
+embed_migrations!();
