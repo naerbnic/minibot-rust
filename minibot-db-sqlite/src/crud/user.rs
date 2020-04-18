@@ -143,8 +143,8 @@ impl UserService for UserServiceImpl {
 
 #[cfg(test)]
 mod test {
-    use crate::db_handle::DbHandle;
     use super::{UserService, UserServiceImpl};
+    use crate::db_handle::DbHandle;
 
     #[tokio::test]
     async fn create_account() {
@@ -153,8 +153,14 @@ mod test {
         let user_service = UserServiceImpl::new(handle.clone());
         let user_id = user_service.create_user("bob_cratchet").await.unwrap();
 
-        let found_user_id = user_service.find_user_by_twitch_account("bob_cratchet").await.unwrap();
-        let unknown_person_id = user_service.find_user_by_twitch_account("ebeneazer_scrooge").await.unwrap();
+        let found_user_id = user_service
+            .find_user_by_twitch_account("bob_cratchet")
+            .await
+            .unwrap();
+        let unknown_person_id = user_service
+            .find_user_by_twitch_account("ebeneazer_scrooge")
+            .await
+            .unwrap();
 
         assert_eq!(Some(user_id), found_user_id);
         assert_eq!(None, unknown_person_id);

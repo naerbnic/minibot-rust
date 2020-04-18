@@ -44,7 +44,7 @@ pub mod login {
 pub mod callback {
     use crate::filters::cloned;
     use crate::handlers::handle_oauth_callback;
-    use crate::services::{token_service::TokenServiceHandle, AuthRequestInfo, AuthConfirmInfo};
+    use crate::services::{token_service::TokenServiceHandle, AuthConfirmInfo, AuthRequestInfo};
     use crate::util::types::OAuthScopeList;
     use futures::prelude::*;
     use serde::Deserialize;
@@ -136,12 +136,10 @@ pub mod confirm {
             .and(query::<Query>())
             .and(cloned(twitch_token_service))
             .and(cloned(confirm_service))
-            .and_then(
-                |q: Query, twitch_config, confirm| async move {
-                    handle_endpoint(&q, &twitch_config, &confirm)
-                        .await
-                        .map_err(|e| warp::reject::custom(Error(e)))
-                },
-            )
+            .and_then(|q: Query, twitch_config, confirm| async move {
+                handle_endpoint(&q, &twitch_config, &confirm)
+                    .await
+                    .map_err(|e| warp::reject::custom(Error(e)))
+            })
     }
 }
