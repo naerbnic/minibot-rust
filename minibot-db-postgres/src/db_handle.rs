@@ -1,8 +1,7 @@
 use crate::{Error, Result};
-use bb8::Pool;
+use bb8::{Pool, PooledConnection};
 use bb8_postgres::PostgresConnectionManager;
 use futures::prelude::*;
-use std::pin::Pin;
 use tokio_postgres::{NoTls, Transaction};
 
 #[derive(Clone)]
@@ -30,9 +29,13 @@ where
     }
 }
 
-trait AnyTransactionFunc<T>: for<'a> TransactionFunc<'a, T> {}
+pub struct DbHandleGuard<'a>(PooledConnection<'a, PostgresConnectionManager<NoTls>>);
 
-impl<S, T> AnyTransactionFunc<T> for S where S: for<'a> TransactionFunc<'a, T> {}
+impl DbHandleGuard<'_> {
+    pub async fn transaction<'a>(&'a mut self) -> Result<Transaction<'a>> {
+        Ok(self.0.transaction().await?)
+    }
+}
 
 impl DbHandle {
     pub async fn new(url: String) -> Result<Self> {
@@ -50,50 +53,42 @@ impl DbHandle {
         let handle = DbHandle::new(url).await?;
 
         println!("Got handle.");
-        handle
-            .run_tx(move |tx: Transaction| async move {
-                tx.batch_execute(
-                    r#"
-                        CREATE SCHEMA test;
-                        SET search_path TO test;
-                    "#,
-                )
-                .await?;
-                tx.commit().await?;
-                Ok(())
-            })
-            .await?;
-
-        let result = test(handle.clone()).await;
-
-        async fn kill_schema<'a>(tx: Transaction<'a>) -> Result<()> {
+        {
+            let mut guard = handle.get().await?;
+            let tx = guard.transaction().await?;
             tx.batch_execute(
                 r#"
-                        SET search_path TO public;
-                        DROP SCHEMA test CASCADE;
-                    "#,
+                    CREATE SCHEMA test;
+                    SET search_path TO test;
+                "#,
             )
             .await?;
             tx.commit().await?;
-            Ok(())
         }
 
-        handle.run_tx(kill_schema).await?;
+        let result = test(handle.clone()).await;
+
+        {
+            let mut guard = handle.get().await?;
+            let tx = guard.transaction().await?;
+            tx.batch_execute(
+                r#"
+                    SET search_path TO public;
+                    DROP SCHEMA test CASCADE;
+                "#,
+            )
+            .await?;
+            tx.commit().await?;
+        }
         result
     }
 
-    pub async fn run_tx<'a, F, Fut, T>(&'a self, op: F) -> Result<T>
-    where
-        F: FnOnce(Transaction<'a>) -> Fut,
-        Fut: Future<Output = Result<T>> + 'a,
-    {
-        let mut conn = self.0.get().await.map_err(|e| match e {
+    pub async fn get<'a>(&'a self) -> Result<DbHandleGuard<'a>> {
+        let conn = self.0.get().await.map_err(|e| match e {
             bb8::RunError::User(e) => e.into(),
             bb8::RunError::TimedOut => Error::ConnectionTimedOut,
         })?;
-        let tx = conn.transaction().await?;
-        let result = op.call(tx).await;
-        result
+        Ok(DbHandleGuard(conn))
     }
 }
 
