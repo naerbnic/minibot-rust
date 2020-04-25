@@ -1,3 +1,10 @@
+//! Implements the SHA256 algorithm compatible with PKCE for Oauth.
+//! 
+//! This allows us to do a key token and retrieval step safely, by ensuring an attacker would need
+//! to have direct access to a program's memory to get at the token.
+//! 
+//! For details, see RFC 7636 (https://tools.ietf.org/html/rfc7636)
+
 use rand::{rngs::OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use sodiumoxide::crypto::hash::sha256;
