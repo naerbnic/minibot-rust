@@ -872,10 +872,11 @@ dependencies = [
 
 [[package]]
 name = "libsqlite3-sys"
-version = "0.17.3"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56d90181c2904c287e5390186be820e5ef311a3c62edebb7d6ca3d6a48ce041d"
+checksum = "0e9eb7b8e152b6a01be6a4a2917248381875758250dc3df5d46caf9250341dda"
 dependencies = [
+ "cc",
  "pkg-config",
  "vcpkg",
 ]
@@ -1071,6 +1072,7 @@ dependencies = [
  "async-trait",
  "diesel",
  "diesel_migrations",
+ "libsqlite3-sys",
  "r2d2",
  "thiserror",
  "tokio",
@@ -1993,9 +1995,9 @@ checksum = "c111b5bd5695e56cffe5129854aa230b39c93a305372fdbb2668ca2394eea9f8"
 
 [[package]]
 name = "smallvec"
-version = "1.2.0"
+version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c2fb2ec9bcd216a5b0d0ccf31ab17b5ed1d627960edff65bbe95d3ce221cefc"
+checksum = "c7cb5678e1615754284ec264d9bb5b4c27d2018577fd90ac0ceb578591ed5ee4"
 
 [[package]]
 name = "socket2"
