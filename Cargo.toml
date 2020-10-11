@@ -1,2 +1,11 @@
 [workspace]
-members = ["minibot-server", "minibot-db-postgres", "minibot-irc", "minibot-client", "minibot-common", "minibot-client-cli", "minibot-db-sqlite"]
+members = [
+    "minibot-server", 
+    "minibot-db-postgres", 
+    "minibot-irc-raw", 
+    "minibot-irc", 
+    "minibot-client", 
+    "minibot-common", 
+    "minibot-client-cli", 
+    "minibot-db-sqlite"
+]

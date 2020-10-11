@@ -606,6 +606,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "futures_codec"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce54d63f8b0c75023ed920d46fd71d0cbbb830b0ee012726b5b4f506fb6dea5b"
+dependencies = [
+ "bytes",
+ "futures",
+ "memchr",
+ "pin-project",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1103,6 +1115,16 @@ dependencies = [
  "tokio",
  "tokio-tls",
  "tokio-util",
+]
+
+[[package]]
+name = "minibot-irc-raw"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "futures",
+ "futures_codec",
+ "thiserror",
 ]
 
 [[package]]
