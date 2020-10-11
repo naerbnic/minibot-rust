@@ -2,7 +2,6 @@
 //! messages, both for parsing and for writing. As the low-level version, it does not directly
 //! involve itself with capability negotiation, and should be handled at a higher layer.
 
-mod byte_string;
 mod codec;
 mod messages;
 mod read_bytes;
@@ -11,50 +10,73 @@ mod write_bytes;
 pub use codec::IrcCodec;
 pub use futures::prelude::*;
 pub use messages::{Command, CommandNumber, Message};
+pub use codec::Error;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 use futures_codec::{FramedRead, FramedWrite};
 
-pub fn from_channel<C: futures::io::AsyncRead + futures::io::AsyncWrite>(
+pub fn from_channel<C: futures::io::AsyncRead + futures::io::AsyncWrite + Unpin + Send + 'static>(
     channel: C,
 ) -> (
-    IrcStream<futures::io::ReadHalf<C>>,
-    IrcSink<futures::io::WriteHalf<C>>,
+    IrcStream,
+    IrcSink,
 ) {
     let (read_half, write_half) = channel.split();
-    (
-        stream_from_async_read(read_half),
-        sink_from_async_write(write_half),
-    )
+    (IrcStream::new(read_half), IrcSink::new(write_half))
 }
 
-pub fn stream_from_async_read<R: futures::io::AsyncRead>(read: R) -> IrcStream<R> {
-    IrcStream(FramedRead::new(read, IrcCodec))
-}
+pub struct IrcStream(Box<dyn Stream<Item = Result<Message, Error>> + Unpin + Send + 'static>);
 
-pub fn sink_from_async_write<R: futures::io::AsyncWrite>(write: R) -> IrcSink<R> {
-    IrcSink(FramedWrite::new(write, IrcCodec))
-}
-
-pub struct IrcStream<T>(FramedRead<T, IrcCodec>);
-
-impl<T> IrcStream<T>
-where
-    T: futures::AsyncRead,
-{
-    pub fn into_inner(self) -> T {
-        let IrcStream(val) = self;
-        val.into_inner()
+impl IrcStream{
+    pub fn new<T>(read: T) -> Self where T: AsyncRead + Unpin + Send + 'static {
+        IrcStream(Box::new(FramedRead::new(read, IrcCodec)))
     }
 }
 
-pub struct IrcSink<T>(FramedWrite<T, IrcCodec>);
+impl Stream for IrcStream {
+    type Item = Result<Message, crate::codec::Error>;
 
-impl<T> IrcSink<T>
-where
-    T: futures::AsyncWrite,
-{
-    pub fn into_inner(self) -> T {
-        let IrcSink(val) = self;
-        val.into_inner()
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context,
+    ) -> Poll<Option<Result<Message, crate::codec::Error>>> {
+        Pin::new(&mut self.0).poll_next(cx)
+    }
+}
+
+pub struct IrcSink(Box<dyn Sink<Message, Error = Error> + Unpin + Send + 'static>);
+
+impl IrcSink {
+    pub fn new<T>(write: T) -> Self where T: AsyncWrite + Unpin + Send + 'static {
+        IrcSink(Box::new(FramedWrite::new(write, IrcCodec)))
+    }
+}
+
+impl Sink<Message> for IrcSink {
+    type Error = crate::codec::Error;
+    fn poll_ready(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context,
+    ) -> Poll<std::result::Result<(), Self::Error>> {
+        Pin::new(&mut self.0).poll_ready(cx)
+    }
+
+    fn start_send(mut self: Pin<&mut Self>, item: Message) -> std::result::Result<(), Self::Error> {
+        Pin::new(&mut self.0).start_send(item)
+    }
+
+    fn poll_flush(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context,
+    ) -> Poll<std::result::Result<(), Self::Error>> {
+        Pin::new(&mut self.0).poll_flush(cx)
+    }
+
+    fn poll_close(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context,
+    ) -> Poll<std::result::Result<(), Self::Error>> {
+        Pin::new(&mut self.0).poll_close(cx)
     }
 }

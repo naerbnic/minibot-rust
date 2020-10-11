@@ -1,5 +1,5 @@
 use crate::connection::{IrcSink, IrcStream};
-use crate::messages::Message;
+use minibot_irc_raw::Message;
 use futures::channel::oneshot;
 use futures::lock::Mutex;
 use futures::prelude::*;
@@ -22,6 +22,9 @@ pub enum Error {
 
     #[error("")]
     HandlerError(#[source] Box<dyn std::error::Error + Send>),
+
+    #[error(transparent)]
+    Irc(#[from] minibot_irc_raw::Error),
 }
 
 struct RpcState {

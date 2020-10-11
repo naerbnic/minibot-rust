@@ -1,9 +1,9 @@
-use crate::byte_string::{ByteStr, ByteString};
 use crate::connection::{IrcConnector, IrcSink, IrcStream};
-use crate::messages::Message;
 use futures::channel::mpsc;
 use futures::prelude::*;
 use futures::{join, select};
+use minibot_byte_string::{ByteStr, ByteString};
+use minibot_irc_raw::Message;
 
 struct Sender<'a>(&'a mut IrcSink);
 
@@ -47,6 +47,9 @@ pub enum ClientError {
 
     #[error("Client has already been closed")]
     AlreadyClosed,
+
+    #[error(transparent)]
+    Irc(#[from] minibot_irc_raw::Error),
 }
 
 pub struct ClientFactory {
@@ -242,10 +245,7 @@ impl Client {
             };
         });
 
-        Client(Some(ClientInner {
-            input,
-            handle,
-        }))
+        Client(Some(ClientInner { input, handle }))
     }
 
     fn get_inner_mut(&mut self) -> ClientResult<&mut ClientInner> {

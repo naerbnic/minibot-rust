@@ -32,16 +32,19 @@ impl futures_codec::Decoder for IrcCodec {
         data: &mut futures_codec::BytesMut,
     ) -> Result<Option<Self::Item>, Self::Error> {
         // Try to find a terminator for the next message.
-        match data.windows(MSG_TERM.len()).position(|w| w == MSG_TERM) {
-            None => Ok(None),
-            Some(pos) => {
-                // Read the message contents up to here
-                let message_contents = data.split_to(pos);
+        loop {
+            match data.windows(MSG_TERM.len()).position(|w| w == MSG_TERM) {
+                None => break Ok(None),
+                Some(pos) => {
+                    // Read the message contents up to here
+                    let message_contents = data.split_to(pos);
+                    data.advance(MSG_TERM.len());
 
-                // Split off the terminator itself.
-                data.advance(MSG_TERM.len());
-
-                Ok(Some(Message::read_bytes(&message_contents)?))
+                    // Empty messages can just be skipped.
+                    if pos > 0 {
+                        break Ok(Some(Message::read_bytes(&message_contents)?));
+                    }
+                }
             }
         }
     }
@@ -60,6 +63,7 @@ impl futures_codec::Encoder for IrcCodec {
         msg.write_bytes(&mut msg_bytes)?;
         out.reserve(msg_bytes.len() + MSG_TERM.len());
         out.extend_from_slice(&msg_bytes);
+        out.extend_from_slice(&MSG_TERM);
         Ok(())
     }
 }

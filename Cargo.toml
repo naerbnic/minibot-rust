@@ -1,9 +1,10 @@
 [workspace]
 members = [
+    "minibot-byte-string",
     "minibot-server", 
     "minibot-db-postgres", 
-    "minibot-irc-raw", 
     "minibot-irc", 
+    "minibot-irc-raw", 
     "minibot-client", 
     "minibot-common", 
     "minibot-client-cli", 

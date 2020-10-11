@@ -4,7 +4,7 @@ extern crate minibot_irc;
 extern crate tokio;
 
 use futures::prelude::*;
-use minibot_irc::messages::{Command, Message};
+use minibot_irc::{Command, Message};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

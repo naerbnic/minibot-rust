@@ -1,15 +1,12 @@
-mod irc_codec;
-mod irc_sink;
-mod irc_stream;
+
 mod net_stream;
 
-pub use irc_sink::IrcSink;
-pub use irc_stream::IrcStream;
+pub use minibot_irc_raw::{IrcStream, IrcSink, Error as IrcError};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error(transparent)]
-    MessageParseError(#[from] crate::messages::Error),
+    MessageParseError(#[from] IrcError),
 
     #[error(transparent)]
     NativeTlsError(#[from] native_tls::Error),
@@ -20,18 +17,18 @@ pub enum Error {
 
 type Result<T> = std::result::Result<T, Error>;
 
-pub struct IrcConnector(tokio_tls::TlsConnector);
+pub struct IrcConnector(async_native_tls::TlsConnector);
 
 impl IrcConnector {
     pub fn new() -> Result<Self> {
-        Ok(IrcConnector(native_tls::TlsConnector::new()?.into()))
+        Ok(IrcConnector(async_native_tls::TlsConnector::new()))
     }
 
     pub async fn connect(&self, host: &str, port: u16) -> Result<(IrcStream, IrcSink)> {
         let (read_stream, write_stream) = net_stream::connect_ssl(&self.0, host, port).await?;
         Ok((
-            irc_stream::make_stream(read_stream),
-            irc_sink::make_sink(write_stream),
+            IrcStream::new(read_stream),
+            IrcSink::new(write_stream),
         ))
     }
 }

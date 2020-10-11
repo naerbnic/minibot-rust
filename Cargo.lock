@@ -43,6 +43,46 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cff77d8686867eceff3105329d4698d96c2391c176d5d03adc90c7389162b5b8"
 
 [[package]]
+name = "async-mutex"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "479db852db25d9dbf6204e6cb6253698f175c15726470f78af0d918e99d6156e"
+dependencies = [
+ "event-listener",
+]
+
+[[package]]
+name = "async-native-tls"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e9e7a929bd34c68a82d58a4de7f86fffdaf97fb2af850162a7bb19dd7269b33"
+dependencies = [
+ "async-std",
+ "native-tls",
+ "thiserror",
+ "url 2.1.1",
+]
+
+[[package]]
+name = "async-std"
+version = "1.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9fa76751505e8df1c7a77762f60486f60c71bbd9b8557f4da6ad47d083732ed"
+dependencies = [
+ "async-mutex",
+ "crossbeam-utils",
+ "futures-channel",
+ "futures-core",
+ "futures-io",
+ "memchr",
+ "once_cell",
+ "pin-project-lite",
+ "pin-utils",
+ "slab",
+ "wasm-bindgen-futures",
+]
+
+[[package]]
 name = "async-trait"
 version = "0.1.41"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -454,6 +494,12 @@ dependencies = [
  "regex",
  "termcolor",
 ]
+
+[[package]]
+name = "event-listener"
+version = "2.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7531096570974c3a9dcf9e4b8e1cede1ec26cf5046219fb3b9d897503b9be59"
 
 [[package]]
 name = "fake-simd"
@@ -1035,6 +1081,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "minibot-byte-string"
+version = "0.1.0"
+
+[[package]]
 name = "minibot-client"
 version = "0.1.0"
 dependencies = [
@@ -1105,11 +1155,14 @@ name = "minibot-irc"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-native-tls",
  "async-trait",
  "byte_string",
  "bytes",
  "devsecrets",
  "futures",
+ "minibot-byte-string",
+ "minibot-irc-raw",
  "native-tls",
  "thiserror",
  "tokio",
@@ -1124,6 +1177,7 @@ dependencies = [
  "bytes",
  "futures",
  "futures_codec",
+ "minibot-byte-string",
  "thiserror",
 ]
 

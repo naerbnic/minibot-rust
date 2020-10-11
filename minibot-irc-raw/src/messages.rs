@@ -1,6 +1,6 @@
 use super::read_bytes::ReadBytes;
 use super::write_bytes::{ByteSink, WriteBytes};
-use crate::byte_string::ByteString;
+use minibot_byte_string::ByteString;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
