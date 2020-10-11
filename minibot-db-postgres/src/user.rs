@@ -1,5 +1,4 @@
 use crate::{DbHandle, Error, Result};
-use futures::prelude::*;
 use std::convert::TryInto;
 
 #[async_trait::async_trait]

@@ -34,7 +34,6 @@ impl<T: Clone> Inner<T> {
 
 pub struct EventSink<T> {
     inner: Arc<Inner<T>>,
-    task_handle: tokio::task::JoinHandle<()>,
 }
 
 impl<T: Clone + Send + Sync + 'static> EventSink<T> {
@@ -45,7 +44,7 @@ impl<T: Clone + Send + Sync + 'static> EventSink<T> {
 
         let arc_inner = Arc::new(inner);
 
-        let handle = tokio::spawn({
+        tokio::spawn({
             let arc_inner = arc_inner.clone();
             async move {
                 while let Some(msg) = stream.next().await {
@@ -56,15 +55,10 @@ impl<T: Clone + Send + Sync + 'static> EventSink<T> {
 
         EventSink {
             inner: arc_inner,
-            task_handle: handle,
         }
     }
 
     pub fn add_sink(&mut self, sender: mpsc::Sender<T>) {
         self.inner.add_sink(sender);
-    }
-
-    pub async fn wait(&mut self) {
-        (&mut self.task_handle).await.unwrap();
     }
 }

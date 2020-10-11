@@ -38,7 +38,6 @@ struct StreamState(Option<RpcStateAndChannel>);
 
 pub struct IrcRpcConnection {
     sink: IrcSink,
-    stream_abort: future::AbortHandle,
     stream_state: Arc<Mutex<StreamState>>,
 }
 
@@ -127,12 +126,11 @@ impl IrcRpcConnection {
                 Ok::<(), Error>(())
             }
         };
-        let (handler_future, stream_abort) = future::abortable(handler_future);
+        let (handler_future, _) = future::abortable(handler_future);
         tokio::spawn(handler_future);
 
         IrcRpcConnection {
             sink,
-            stream_abort,
             stream_state,
         }
     }

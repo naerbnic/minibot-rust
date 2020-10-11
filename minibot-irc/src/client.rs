@@ -75,12 +75,12 @@ async fn initialize_irc_channel(
         if params.len() == 2 {
             assert!(params[0].eq_bytes(b"LS"));
             let caps_list = &params[1];
-            caps.extend(caps_list.split_spaces().map(ByteStr::to_string));
+            caps.extend(caps_list.split_spaces().map(ByteStr::to_byte_string));
         } else if params.len() == 3 {
             assert!(params[0].eq_bytes(b"*"));
             assert!(params[1].eq_bytes(b"LS"));
             let caps_list = &params[2];
-            caps.extend(caps_list.split_spaces().map(ByteStr::to_string));
+            caps.extend(caps_list.split_spaces().map(ByteStr::to_byte_string));
             break;
         } else {
             panic!("Unexpected message: {:?}", message);
@@ -108,12 +108,12 @@ async fn initialize_irc_channel(
         if params.len() == 2 {
             assert!(params[0].eq_bytes(b"ACK"));
             let caps_list = &params[1];
-            caps.extend(caps_list.split_spaces().map(ByteStr::to_string));
+            caps.extend(caps_list.split_spaces().map(ByteStr::to_byte_string));
         } else if params.len() == 3 {
             assert!(params[0].eq_bytes(b"*"));
             assert!(params[1].eq_bytes(b"ACK"));
             let caps_list = &params[2];
-            caps.extend(caps_list.split_spaces().map(ByteStr::to_string));
+            caps.extend(caps_list.split_spaces().map(ByteStr::to_byte_string));
             break;
         } else {
             panic!("Unexpected message: {:?}", message);
@@ -179,7 +179,7 @@ async fn run_output_loop(
         match msg_or_err {
             Ok(msg) => {
                 if msg.has_named_command("PING") {
-                    if let Err(_) = ping_sink.send(msg.params()[0].to_string()).await {
+                    if let Err(_) = ping_sink.send(msg.params()[0].to_byte_string()).await {
                         break;
                     }
                 } else {
@@ -221,7 +221,6 @@ pub type ClientResult<T> = Result<T, ClientError>;
 
 struct ClientInner {
     input: mpsc::Sender<Message>,
-    output: mpsc::Receiver<Message>,
     handle: tokio::task::JoinHandle<()>,
 }
 
@@ -230,7 +229,7 @@ pub struct Client(Option<ClientInner>);
 impl Client {
     fn new(irc_read: IrcStream, irc_write: IrcSink) -> Self {
         let (input, input_stream) = mpsc::channel(3);
-        let (output_sink, output) = mpsc::channel(3);
+        let (output_sink, _) = mpsc::channel(3);
 
         let handle = tokio::spawn(async move {
             let input_stream =
@@ -245,7 +244,6 @@ impl Client {
 
         Client(Some(ClientInner {
             input,
-            output,
             handle,
         }))
     }

@@ -71,7 +71,7 @@ impl ByteStr {
         SplitSpaces(&self.0)
     }
 
-    pub fn to_string(&self) -> ByteString {
+    pub fn to_byte_string(&self) -> ByteString {
         ByteString::from_slice(&self.0)
     }
 }
