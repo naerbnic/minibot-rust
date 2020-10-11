@@ -15,6 +15,7 @@ native-tls = "0.2.3"
 tokio-util = { version = "0.3.0", features = ["compat", "codec"] }
 bytes = "0.5.4"
 async-trait = "0.1.26"
+byte_string = "1.0.0"
 
 [dev-dependencies]
 anyhow = "1.0.27"

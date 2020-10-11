@@ -15,8 +15,6 @@ use services::{
 use std::sync::Arc;
 use warp::Filter;
 
-devsecrets::import_id!(DEVSECRETS_ID);
-
 #[tokio::main]
 async fn main() {
     env_logger::init();
@@ -24,7 +22,7 @@ async fn main() {
     // let routes = warp::any().map(|| "Hello, World!");
 
     // warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
-    let ds = devsecrets::DevSecrets::from_id(&DEVSECRETS_ID).unwrap();
+    let ds = devsecrets::DevSecrets::from_id(&devsecrets::import_id!()).unwrap();
 
     let twitch_client: OAuthClientInfo = ds
         .read_from("twitch-client.json")

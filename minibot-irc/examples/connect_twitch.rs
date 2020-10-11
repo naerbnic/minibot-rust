@@ -6,11 +6,9 @@ extern crate tokio;
 use futures::prelude::*;
 use minibot_irc::messages::{Command, Message};
 
-devsecrets::import_id!(DEVSECRETS_ID);
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let ds = devsecrets::DevSecrets::from_id(&DEVSECRETS_ID).unwrap();
+    let ds = devsecrets::DevSecrets::from_id(&devsecrets::import_id!()).unwrap();
     let key = ds.read_from("irc_key.txt").to_string().unwrap();
 
     if false {
