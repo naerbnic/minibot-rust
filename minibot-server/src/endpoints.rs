@@ -1,4 +1,5 @@
 use crate::handlers::{handle_oauth_callback, handle_start_auth_request, OAuthConfig};
+use crate::reqwest_middleware::ClientHandle;
 use crate::services::twitch_token::{TwitchTokenHandle, TwitchTokenService};
 use crate::services::{
     token_service::{TokenService, TokenServiceHandle},
@@ -14,8 +15,7 @@ use gotham::router::Router;
 use gotham::state::{FromState, State};
 use gotham_derive::{StateData, StaticResponseExtender};
 use minibot_common::proof_key::{Challenge, Verifier};
-use serde::{Serialize, Deserialize};
-use crate::reqwest_middleware::ClientHandle;
+use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Debug, StateData, StaticResponseExtender)]
 pub struct LoginQuery {
@@ -103,8 +103,9 @@ async fn handle_endpoint(
         .await?;
     println!("Retrieved token response: {:#?}", response);
 
-    Ok(serde_json::to_string(&ConfirmResponse { access_token: "Hello".to_string()})?)
-
+    Ok(serde_json::to_string(&ConfirmResponse {
+        access_token: "Hello".to_string(),
+    })?)
 }
 
 async fn confirm_handler(state: &mut State) -> Result<Response<Body>, HandlerError> {

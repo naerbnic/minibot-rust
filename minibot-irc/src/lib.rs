@@ -4,4 +4,4 @@ mod futures_util;
 pub mod room_state;
 pub mod rpc;
 
-pub use minibot_irc_raw::{Message, Command};
+pub use minibot_irc_raw::{Command, Message};

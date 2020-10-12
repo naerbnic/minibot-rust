@@ -53,9 +53,7 @@ impl<T: Clone + Send + Sync + 'static> EventSink<T> {
             }
         });
 
-        EventSink {
-            inner: arc_inner,
-        }
+        EventSink { inner: arc_inner }
     }
 
     pub fn add_sink(&mut self, sender: mpsc::Sender<T>) {

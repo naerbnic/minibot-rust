@@ -19,7 +19,9 @@ pub trait TokenService<T>: Sync + Send {
 }
 
 #[derive(gotham_derive::StateData)]
-pub struct TokenServiceHandle<T: 'static>(Arc<dyn TokenService<T> + Send + Sync + std::panic::RefUnwindSafe>);
+pub struct TokenServiceHandle<T: 'static>(
+    Arc<dyn TokenService<T> + Send + Sync + std::panic::RefUnwindSafe>,
+);
 
 impl<T: 'static> Clone for TokenServiceHandle<T> {
     fn clone(&self) -> Self {
@@ -36,7 +38,12 @@ impl<T> std::ops::Deref for TokenServiceHandle<T> {
 
 pub fn create_serde<T>() -> TokenServiceHandle<T>
 where
-    T: ::serde::Serialize + ::serde::de::DeserializeOwned + Send + Sync + std::panic::RefUnwindSafe + 'static,
+    T: ::serde::Serialize
+        + ::serde::de::DeserializeOwned
+        + Send
+        + Sync
+        + std::panic::RefUnwindSafe
+        + 'static,
 {
     TokenServiceHandle(serde::SerdeTokenService::new())
 }

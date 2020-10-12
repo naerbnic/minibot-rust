@@ -1,8 +1,8 @@
 use crate::connection::{IrcSink, IrcStream};
-use minibot_irc_raw::Message;
 use futures::channel::oneshot;
 use futures::lock::Mutex;
 use futures::prelude::*;
+use minibot_irc_raw::Message;
 use std::sync::Arc;
 
 #[derive(Copy, Clone, Debug)]
@@ -132,10 +132,7 @@ impl IrcRpcConnection {
         let (handler_future, _) = future::abortable(handler_future);
         tokio::spawn(handler_future);
 
-        IrcRpcConnection {
-            sink,
-            stream_state,
-        }
+        IrcRpcConnection { sink, stream_state }
     }
 
     pub async fn call<T: RpcCall + Sync + Send + 'static>(

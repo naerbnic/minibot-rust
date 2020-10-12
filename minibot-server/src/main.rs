@@ -4,9 +4,9 @@ mod config;
 mod endpoints;
 mod filters;
 mod handlers;
+mod reqwest_middleware;
 mod services;
 mod util;
-mod reqwest_middleware;
 
 use handlers::{OAuthClientInfo, OAuthConfig};
 use services::{
@@ -35,8 +35,7 @@ fn main() {
 
     let auth_service: TokenServiceHandle<AuthRequestInfo> = create_serde();
     let auth_confirm_service: TokenServiceHandle<AuthConfirmInfo> = create_serde();
-    let twitch_token_service =
-        twitch_token::TwitchTokenHandle::new(twitch_config.clone());
+    let twitch_token_service = twitch_token::TwitchTokenHandle::new(twitch_config.clone());
 
     let router = endpoints::router(
         twitch_config.clone(),
