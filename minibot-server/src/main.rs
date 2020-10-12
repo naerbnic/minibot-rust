@@ -7,6 +7,7 @@ mod handlers;
 mod reqwest_middleware;
 mod services;
 mod util;
+mod ws;
 
 use handlers::{OAuthClientInfo, OAuthConfig};
 use services::{
@@ -14,7 +15,10 @@ use services::{
     twitch_token, AuthConfirmInfo, AuthRequestInfo,
 };
 
-fn main() {
+use futures::prelude::*;
+
+#[tokio::main]
+async fn main() {
     env_logger::init();
     // Match any request and return hello world!
     // let routes = warp::any().map(|| "Hello, World!");
@@ -37,14 +41,27 @@ fn main() {
     let auth_confirm_service: TokenServiceHandle<AuthConfirmInfo> = create_serde();
     let twitch_token_service = twitch_token::TwitchTokenHandle::new(twitch_config.clone());
 
+    let (send, mut recv) = futures::channel::mpsc::channel(10);
+
     let router = endpoints::router(
         twitch_config.clone(),
         twitch_token_service,
         auth_service,
         auth_confirm_service,
+        Box::new(send),
     );
 
     println!("Twitch config: {:#?}", twitch_config);
 
-    gotham::start(("127.0.0.1", 5001), router);
+    tokio::spawn(async move {
+        while let Some(_) = recv.next().await {
+
+        }
+    });
+
+    let server = gotham::plain::init_server(("127.0.0.1", 5001), router);
+    tokio::select!{
+        _ = server => (), 
+        _ = tokio::signal::ctrl_c() => (),
+    };
 }
