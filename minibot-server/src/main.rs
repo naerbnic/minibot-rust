@@ -6,17 +6,15 @@ mod filters;
 mod handlers;
 mod services;
 mod util;
+mod reqwest_middleware;
 
 use handlers::{OAuthClientInfo, OAuthConfig};
 use services::{
     token_service::{create_serde, TokenServiceHandle},
     twitch_token, AuthConfirmInfo, AuthRequestInfo,
 };
-use std::sync::Arc;
-use warp::Filter;
 
-#[tokio::main]
-async fn main() {
+fn main() {
     env_logger::init();
     // Match any request and return hello world!
     // let routes = warp::any().map(|| "Hello, World!");
@@ -30,30 +28,24 @@ async fn main() {
         .into_value()
         .expect("Secret is readable");
 
-    let twitch_config = Arc::new(OAuthConfig {
+    let twitch_config = OAuthConfig {
         client: twitch_client,
         provider: config::TWITCH_PROVIDER.clone(),
-    });
-
-    let reqwest_client = Arc::new(reqwest::Client::new());
+    };
 
     let auth_service: TokenServiceHandle<AuthRequestInfo> = create_serde();
     let auth_confirm_service: TokenServiceHandle<AuthConfirmInfo> = create_serde();
     let twitch_token_service =
-        twitch_token::create_service(reqwest_client.clone(), twitch_config.clone());
+        twitch_token::TwitchTokenHandle::new(twitch_config.clone());
 
-    let routes = (endpoints::login::endpoint(twitch_config.clone(), auth_service.clone())
-        .or(endpoints::callback::endpoint(
-            auth_service.clone(),
-            auth_confirm_service.clone(),
-        ))
-        .or(endpoints::confirm::endpoint(
-            twitch_token_service,
-            auth_confirm_service.clone(),
-        )))
-    .with(warp::log("server"));
+    let router = endpoints::router(
+        twitch_config.clone(),
+        twitch_token_service,
+        auth_service,
+        auth_confirm_service,
+    );
 
     println!("Twitch config: {:#?}", twitch_config);
 
-    futures::join!(warp::serve(routes).run(([127, 0, 0, 1], 5001)), async {},);
+    gotham::start(("127.0.0.1", 5001), router);
 }

@@ -3,7 +3,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct TokenResponse {
     access_token: String,
     refresh_token: String,
@@ -15,23 +15,22 @@ pub struct TokenResponse {
 
 #[async_trait::async_trait]
 pub trait TwitchToken {
-    async fn exchange_code(&self, code: &str) -> anyhow::Result<TokenResponse>;
+    async fn exchange_code(&self, client: &Client, code: &str) -> anyhow::Result<TokenResponse>;
 }
 
 pub struct TwitchTokenImpl {
-    client: Arc<Client>,
-    config: Arc<OAuthConfig>,
+    config: OAuthConfig,
 }
 
 impl TwitchTokenImpl {
-    pub fn new(client: Arc<Client>, config: Arc<OAuthConfig>) -> Self {
-        TwitchTokenImpl { client, config }
+    pub fn new(config: OAuthConfig) -> Self {
+        TwitchTokenImpl { config }
     }
 }
 
 #[async_trait::async_trait]
 impl TwitchToken for TwitchTokenImpl {
-    async fn exchange_code(&self, code: &str) -> anyhow::Result<TokenResponse> {
+    async fn exchange_code(&self, client: &Client, code: &str) -> anyhow::Result<TokenResponse> {
         #[derive(Serialize)]
         struct TokenQuery<'a> {
             client_id: &'a str,
@@ -41,8 +40,7 @@ impl TwitchToken for TwitchTokenImpl {
             redirect_uri: &'a str,
         }
 
-        let response = self
-            .client
+        let response = client
             .post(&self.config.provider.token_endpoint)
             .query(&TokenQuery {
                 client_id: &self.config.client.client_id,
@@ -58,8 +56,20 @@ impl TwitchToken for TwitchTokenImpl {
     }
 }
 
-pub type TwitchTokenService = dyn TwitchToken + Send + Sync + 'static;
+pub type TwitchTokenService = dyn TwitchToken + Send + Sync + std::panic::RefUnwindSafe + 'static;
 
-pub fn create_service(client: Arc<Client>, config: Arc<OAuthConfig>) -> Arc<TwitchTokenService> {
-    Arc::new(TwitchTokenImpl::new(client, config))
+#[derive(Clone, gotham_derive::StateData)]
+pub struct TwitchTokenHandle(Arc<TwitchTokenService>);
+
+impl TwitchTokenHandle {
+    pub fn new(config: OAuthConfig) -> Self {
+        TwitchTokenHandle(Arc::new(TwitchTokenImpl::new(config)))
+    }
+}
+
+impl std::ops::Deref for TwitchTokenHandle {
+    type Target = TwitchTokenService;
+    fn deref(&self) -> &TwitchTokenService {
+        &*self.0
+    }
 }

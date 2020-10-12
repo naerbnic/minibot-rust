@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 /// A service that stores/converts `AuthRequestInfo` to and from a string token.
 #[async_trait]
-pub trait TokenService<T>: Sync {
+pub trait TokenService<T>: Sync + Send {
     /// Return a token for the given info value. This token must be a url-safe
     /// string. `self.from_token()` must return the same value.
     async fn to_token(&self, value: T) -> anyhow::Result<String>;
@@ -18,11 +18,25 @@ pub trait TokenService<T>: Sync {
     async fn from_token(&self, token: &str) -> anyhow::Result<Option<T>>;
 }
 
-pub type TokenServiceHandle<T> = Arc<dyn TokenService<T> + Send + Sync>;
+#[derive(gotham_derive::StateData)]
+pub struct TokenServiceHandle<T: 'static>(Arc<dyn TokenService<T> + Send + Sync + std::panic::RefUnwindSafe>);
+
+impl<T: 'static> Clone for TokenServiceHandle<T> {
+    fn clone(&self) -> Self {
+        TokenServiceHandle(self.0.clone())
+    }
+}
+
+impl<T> std::ops::Deref for TokenServiceHandle<T> {
+    type Target = dyn TokenService<T> + 'static;
+    fn deref(&self) -> &(dyn TokenService<T> + 'static) {
+        &*self.0
+    }
+}
 
 pub fn create_serde<T>() -> TokenServiceHandle<T>
 where
-    T: ::serde::Serialize + ::serde::de::DeserializeOwned + Send + Sync + 'static,
+    T: ::serde::Serialize + ::serde::de::DeserializeOwned + Send + Sync + std::panic::RefUnwindSafe + 'static,
 {
-    serde::SerdeTokenService::new()
+    TokenServiceHandle(serde::SerdeTokenService::new())
 }

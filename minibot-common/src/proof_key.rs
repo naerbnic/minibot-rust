@@ -26,6 +26,16 @@ pub struct Challenge(String);
 #[serde(transparent)]
 pub struct Verifier(String);
 
+impl Verifier {
+    pub fn verify(&self, challenge: &Challenge) -> Result<(), VerifyError> {
+        if generate_challenge(&self.0) == challenge.0 {
+            Ok(())
+        } else {
+            Err(VerifyError)
+        }
+    }
+}
+
 pub fn generate_pair() -> (Challenge, Verifier) {
     let mut bytes = [0u8; 32];
     OsRng.fill_bytes(&mut bytes[..]);
@@ -33,12 +43,4 @@ pub fn generate_pair() -> (Challenge, Verifier) {
 
     let challenge = generate_challenge(&verifier);
     (Challenge(challenge), Verifier(verifier))
-}
-
-pub fn verify_challenge(challenge: &Challenge, verifier: &Verifier) -> Result<(), VerifyError> {
-    if generate_challenge(&verifier.0) == challenge.0 {
-        Ok(())
-    } else {
-        Err(VerifyError)
-    }
 }

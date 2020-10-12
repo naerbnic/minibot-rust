@@ -5,13 +5,15 @@ use std::sync::Arc;
 
 pub struct SerdeTokenService<T>
 where
-    T: Serialize + DeserializeOwned + Sync + Send,
+    T: Serialize + DeserializeOwned + Sync + Send + std::panic::RefUnwindSafe,
 {
     _data: std::marker::PhantomData<T>,
 }
 
-impl<T: Serialize + DeserializeOwned + Sync + Send + 'static> SerdeTokenService<T> {
-    pub fn new() -> Arc<dyn TokenService<T> + Send + Sync> {
+impl<T: Serialize + DeserializeOwned + Sync + Send + std::panic::RefUnwindSafe + 'static>
+    SerdeTokenService<T>
+{
+    pub fn new() -> Arc<dyn TokenService<T> + Send + Sync + std::panic::RefUnwindSafe> {
         Arc::new(SerdeTokenService {
             _data: std::marker::PhantomData {},
         })
@@ -19,7 +21,9 @@ impl<T: Serialize + DeserializeOwned + Sync + Send + 'static> SerdeTokenService<
 }
 
 #[async_trait]
-impl<T: Serialize + DeserializeOwned + Sync + Send> TokenService<T> for SerdeTokenService<T> {
+impl<T: Serialize + DeserializeOwned + Sync + Send + std::panic::RefUnwindSafe> TokenService<T>
+    for SerdeTokenService<T>
+{
     async fn to_token(&self, value: T) -> Result<String, anyhow::Error> {
         Ok(base64::encode_config(
             &serde_json::to_string(&value)?,

@@ -76,6 +76,8 @@ pub fn run_client<'a>(
             access_token: String,
         }
 
+        println!("Before body decoding...");
+
         let Body { access_token } = response.json::<Body>().await?;
 
         Ok::<_, ClientError>(access_token)

@@ -1,8 +1,7 @@
-use crate::services::{token_service::TokenServiceHandle, AuthConfirmInfo, AuthRequestInfo};
+use crate::services::{token_service::TokenService, AuthConfirmInfo, AuthRequestInfo};
 use anyhow::bail;
 use minibot_common::proof_key;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use url::Url;
 
 /// Information about an OAuth2 Provider needed to perform the standard code
@@ -33,7 +32,7 @@ pub struct OAuthClientInfo {
 
 /// All information about the OAuth2 environment needed to perform the standard
 /// code exchange.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, gotham_derive::StateData)]
 pub struct OAuthConfig {
     pub provider: OAuthProviderInfo,
     pub client: OAuthClientInfo,
@@ -48,9 +47,9 @@ impl OAuthConfig {
 pub async fn handle_start_auth_request(
     redirect_uri: String,
     challenge: proof_key::Challenge,
-    auth_service: TokenServiceHandle<AuthRequestInfo>,
-    oauth_config: Arc<OAuthConfig>,
-) -> Result<impl warp::Reply, anyhow::Error> {
+    auth_service: &dyn TokenService<AuthRequestInfo>,
+    oauth_config: &OAuthConfig,
+) -> Result<String, anyhow::Error> {
     let url = Url::parse(&*redirect_uri)?;
     if url.scheme() != "http" {
         bail!("Redirect URI must have 'http' scheme.")
@@ -71,18 +70,17 @@ pub async fn handle_start_auth_request(
         &*oauth_config,
         &["openid", "viewing_activity_read"],
         &token,
-    )?
-    .parse::<warp::http::Uri>()?;
+    )?;
 
-    Ok(warp::redirect::temporary(redirect_uri))
+    Ok(redirect_uri)
 }
 
 pub async fn handle_oauth_callback(
     code: String,
     state: String,
-    auth_service: TokenServiceHandle<AuthRequestInfo>,
-    auth_confirm_service: TokenServiceHandle<AuthConfirmInfo>,
-) -> Result<impl warp::Reply, anyhow::Error> {
+    auth_service: &dyn TokenService<AuthRequestInfo>,
+    auth_confirm_service: &dyn TokenService<AuthConfirmInfo>,
+) -> Result<String, anyhow::Error> {
     let auth_req = match auth_service.from_token(&state).await? {
         Some(auth_req) => auth_req,
         None => anyhow::bail!("Could not retrieve token."),
@@ -101,9 +99,7 @@ pub async fn handle_oauth_callback(
         .clear()
         .append_pair("token", &token);
 
-    Ok(warp::redirect::temporary(warp::http::Uri::from(
-        local_redirect_url.into_string().parse()?,
-    )))
+    Ok(local_redirect_url.into_string())
 }
 
 #[derive(Deserialize)]
@@ -117,19 +113,19 @@ pub struct TokenResponse {
 }
 
 pub async fn handle_confirm(
+    client: &reqwest::Client,
     token: String,
     verifier: proof_key::Verifier,
-    auth_confirm_service: TokenServiceHandle<AuthConfirmInfo>,
-    oauth_config: Arc<OAuthConfig>,
+    auth_confirm_service: &dyn TokenService<AuthConfirmInfo>,
+    oauth_config: &OAuthConfig,
 ) -> Result<TokenResponse, anyhow::Error> {
     let auth_complete_info = match auth_confirm_service.from_token(&token).await? {
         Some(info) => info,
         None => anyhow::bail!("Could not retrieve token."),
     };
-    proof_key::verify_challenge(&auth_complete_info.challenge, &verifier)?;
+    verifier.verify(&auth_complete_info.challenge)?;
     // Now that we're all verified, finish the key exchange
 
-    let client = reqwest::Client::new();
     let response_text = client
         .post(&oauth_config.provider.token_endpoint)
         .query(&[
