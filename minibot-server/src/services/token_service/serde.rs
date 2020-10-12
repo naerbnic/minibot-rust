@@ -1,39 +1,46 @@
 use super::TokenService;
 use async_trait::async_trait;
+use fernet::Fernet;
 use serde::{de::DeserializeOwned, Serialize};
+use std::panic::RefUnwindSafe;
 use std::sync::Arc;
 
 pub struct SerdeTokenService<T>
 where
-    T: Serialize + DeserializeOwned + Sync + Send + std::panic::RefUnwindSafe,
+    T: Serialize + DeserializeOwned + Sync + Send + RefUnwindSafe,
 {
+    encdec: Fernet,
     _data: std::marker::PhantomData<T>,
 }
 
-impl<T: Serialize + DeserializeOwned + Sync + Send + std::panic::RefUnwindSafe + 'static>
-    SerdeTokenService<T>
+impl<T> SerdeTokenService<T>
+where
+    T: Serialize + DeserializeOwned + Sync + Send + RefUnwindSafe + 'static,
 {
-    pub fn new() -> Arc<dyn TokenService<T> + Send + Sync + std::panic::RefUnwindSafe> {
+    pub fn new() -> Arc<dyn TokenService<T> + Send + Sync + RefUnwindSafe> {
         Arc::new(SerdeTokenService {
+            encdec: Fernet::new(&Fernet::generate_key()).unwrap(),
             _data: std::marker::PhantomData {},
         })
     }
 }
 
 #[async_trait]
-impl<T: Serialize + DeserializeOwned + Sync + Send + std::panic::RefUnwindSafe> TokenService<T>
+impl<T: Serialize + DeserializeOwned + Sync + Send + RefUnwindSafe> TokenService<T>
     for SerdeTokenService<T>
 {
     async fn to_token(&self, value: T) -> Result<String, anyhow::Error> {
-        Ok(base64::encode_config(
-            &serde_json::to_string(&value)?,
-            base64::URL_SAFE_NO_PAD,
-        ))
+        let encrypted = self
+            .encdec
+            .encrypt(serde_json::to_string(&value)?.as_bytes());
+        Ok(encrypted)
     }
+
     async fn from_token(&self, token: &str) -> Result<Option<T>, anyhow::Error> {
-        Ok(Some(serde_json::from_slice(&base64::decode_config(
-            token,
-            base64::URL_SAFE_NO_PAD,
-        )?)?))
+        let decrypted = self
+            .encdec
+            .decrypt(token)
+            .map_err(|_| anyhow::anyhow!("Unable to decrypt token."))?;
+        Ok(Some(serde_json::from_slice(&decrypted)?))
     }
 }

@@ -36,6 +36,8 @@ async fn login_handler(state: &mut State) -> Result<Response<Body>, HandlerError
     )
     .await?;
 
+    log::info!("Redirect to Twitch auth endpoint: {}", redirect);
+
     Ok(gotham::helpers::http::response::create_temporary_redirect(
         state, redirect,
     ))
@@ -60,6 +62,8 @@ async fn callback_handler(state: &mut State) -> Result<Response<Body>, HandlerEr
         &*confirm_token_service,
     )
     .await?;
+
+    log::info!("Redirect to local callback: {}", redirect);
 
     Ok(gotham::helpers::http::response::create_temporary_redirect(
         state, redirect,
