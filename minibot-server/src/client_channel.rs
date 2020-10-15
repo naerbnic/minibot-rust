@@ -64,44 +64,50 @@ struct StreamState {
     cancel_handle: CancelHandle,
 }
 
-pub struct ClientChannel {}
+pub struct ClientChannel {
+    event_send: mpsc::Sender<Event>,
+}
 
 impl ClientChannel {
-    pub fn start_channel<In, Out, E, H>(mut stream: In, mut sink: Out, handler: H) -> Self
+    pub fn start_channel<In, H>(stream: In, sink: mpsc::Sender<Message>, handler: H) -> Self
     where
         In: Stream<Item = Message> + Send + Unpin + 'static,
-        Out: Sink<Message, Error = E> + Send + Unpin + 'static,
-        E: Send + 'static,
+        H: CommandHandler + 'static,
+    {
+        let (new_chan, fut) = ClientChannel::new_channel(stream, sink, handler);
+        tokio::spawn(fut);
+        new_chan
+    }
+
+    pub fn new_channel<In, H>(
+        stream: In,
+        sink: mpsc::Sender<Message>,
+        handler: H,
+    ) -> (Self, impl Future<Output = ()>)
+    where
+        In: Stream<Item = Message> + Send + Unpin + 'static,
         H: CommandHandler + 'static,
     {
         // mpsc channel for output
-        let (send, mut recv) = mpsc::channel(10);
+        let (send, recv) = mpsc::channel(10);
 
-        let (mut event_send, event_recv) = mpsc::channel(10);
+        let (event_send, event_recv) = mpsc::channel(10);
 
-        // Start a future to connect the channel to the sink
-        tokio::spawn(async move {
-            while let Some(msg) = recv.next().await {
-                if let Err(_) = sink.send(msg).await {
-                    break;
-                }
+        let future = {
+            let event_send = event_send.clone();
+            async move {
+                futures::join!(
+                    join_channel_ends(recv, sink),
+                    join_channel_ends(stream.map(Event::Message), event_send.clone(),),
+                    async move {
+                        let mut broker = Broker::new(handler);
+                        broker.start(event_recv, send).await
+                    }
+                );
             }
-        });
+        };
 
-        tokio::spawn(async move {
-            while let Some(msg) = stream.next().await {
-                if let Err(_) = event_send.send(Event::Message(msg)).await {
-                    break;
-                }
-            }
-        });
-
-        // This is the main dispatch logic task
-        tokio::spawn(async move {
-            let mut broker = Broker::new(handler);
-            broker.start(event_recv, send).await
-        });
-        todo!()
+        (ClientChannel { event_send }, future)
     }
 
     pub fn send_command(
@@ -118,19 +124,19 @@ async fn stream_sender_loop(
     id: String,
     mut client_recv: mpsc::Receiver<serde_json::Value>,
     mut send: mpsc::Sender<Message>,
-) {
+) -> anyhow::Result<()> {
     while let Some(msg) = client_recv.next().await {
         send.send(Message::Stream(StreamMessage {
             id: id.clone(),
             payload: msg,
         }))
-        .await
-        .unwrap();
+        .await?;
     }
 
     send.send(Message::EndStream(EndStreamMessage { id }))
-        .await
-        .unwrap();
+        .await?;
+
+    Ok(())
 }
 
 struct StartCommandEvent {
@@ -165,15 +171,19 @@ impl Broker {
         &mut self,
         mut stream: mpsc::Receiver<Event>,
         mut send: mpsc::Sender<Message>,
-    ) -> anyhow::Result<()> {
+    ) {
         while let Some(event) = stream.next().await {
-            match event {
-                Event::StartCommand(cmd) => self.handle_start_command(cmd, &mut send).await?,
-                Event::Message(msg) => self.handle_message(msg, &mut send).await?,
+            let result = match event {
+                Event::StartCommand(cmd) => self.handle_start_command(cmd, &mut send).await,
+                Event::Message(msg) => self.handle_message(msg, &mut send).await,
+            };
+
+            if let Err(e) = result {
+                // Cancellation propagated by dropping stream
+                log::error!("Broker stream error: {}", e);
+                return;
             }
         }
-
-        Ok(())
     }
 
     async fn handle_start_command(
@@ -188,14 +198,18 @@ impl Broker {
             payload: start_command.payload,
         };
 
-        let _ = client_send.send(Message::Command(cmd_message)).await;
+        client_send.send(Message::Command(cmd_message)).await?;
 
         self.incoming_streams.insert(new_id, start_command.sink);
 
         Ok(())
     }
 
-    async fn handle_message(&mut self, msg: Message, send: &mut mpsc::Sender<Message>) -> anyhow::Result<()> {
+    async fn handle_message(
+        &mut self,
+        msg: Message,
+        send: &mut mpsc::Sender<Message>,
+    ) -> anyhow::Result<()> {
         match msg {
             Message::Command(cmd) => {
                 if self.outgoing_streams.contains_key(&cmd.id) {
@@ -274,5 +288,19 @@ impl Broker {
             self.next_id = 1
         }
         new_id.to_string()
+    }
+}
+
+async fn join_channel_ends<T, In>(mut recv: In, mut send: mpsc::Sender<T>)
+where
+    In: Stream<Item = T> + Unpin,
+{
+    while let Some(v) = recv.next().await {
+        // The only error we can get from a Sender is that the stream was disconnected.
+        // By dropping the stream, we either cancel it, or propagate an error up the
+        // chain.
+        if let Err(_) = send.send(v).await {
+            return;
+        }
     }
 }
