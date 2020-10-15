@@ -1,3 +1,48 @@
+//! Implementation for the WebSocket channel protocol
+//!
+//! A channel handles a bidirectional stream of messages that consist of multiplexed commands and
+//! streams of responses. A stream can handle multiple commands and responses at once.
+//!
+//! A single command from A to B consists of the following steps:
+//!
+//! 1. A sends a "cmd" message to B
+//!
+//!    This command message consists of an ID chosen by A to be free (i.e. not being used for any
+//!    unterminated command started by A), a method string defining which method should be called,
+//!    and a payload, consisting of a free JSON value that acts as parameters to the method. Once
+//!    this message is sent, the ID is considered allocated.
+//!
+//!    Note that IDs created by A and B are independent of each other, so there is no possibility
+//!    of collision
+//!
+//! 2. B sends zero or more "resp" messages to A
+//!
+//!    A resp (response) message consists of an ID indicating which command this is in response to,
+//!    and a payload JSON value that counts as the content of the response. The number of response
+//!    messages sent back is arbitrary, and is part of the method handler implementation.
+//!
+//! 3. B sends an "end" message to A
+//!
+//!    An end message consists only of an ID indicating which command this is ending. Once B sends
+//!    an end message, that ID is considered free once again. Thus when A recieves an end message,
+//!    they are free to reuse that ID for a future command.
+//!
+//! It is also possible for A to stop a stream early for B by sending a "cancel" command with
+//! the command ID they want to stop receiving responses for. Sending a cancel with an ID does
+//! _not_ free the ID. When B recieves a cancel, it SHOULD end the stream at the earliest
+//! opportunity, being sure to send an "end" message to indicate stream termination. Sending a
+//! cancel message can disregard the internal protocol for the response stream, leaving it
+//! incomplete. What an early cancellation means for these methods is up to the method implementor.
+//!
+//! The cancel can be part of the protocol of a method. For example, if a method sends back a stream
+//! of live data updates, it does not need to send an end message until the stream is cancelled.
+//!
+//! There may be higher-level protocols built off of this one, such as reserved method names that
+//! define some meta-level operations (like querying what methods are available, etc.).
+//!
+//! TODO: What about needing to terminate and rejoin a session, to switch servers for example? Is
+//! there a way to recreate a stream setting, or should that be part of the layer above this one?
+
 use futures::channel::mpsc;
 use futures::prelude::*;
 use futures::task::{Spawn, SpawnExt as _};
@@ -25,18 +70,18 @@ pub struct CommandMessage {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct SquelchMessage {
+pub struct CancelMessage {
     id: String,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct StreamMessage {
+pub struct ResponseMessage {
     id: String,
     payload: serde_json::Value,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct EndStreamMessage {
+pub struct EndMessage {
     id: String,
 }
 
@@ -51,12 +96,12 @@ pub struct ErrorMessage {
 pub enum Message {
     #[serde(rename = "cmd")]
     Command(CommandMessage),
-    #[serde(rename = "squelch")]
-    Squelch(SquelchMessage),
-    #[serde(rename = "stream")]
-    Stream(StreamMessage),
-    #[serde(rename = "endstream")]
-    EndStream(EndStreamMessage),
+    #[serde(rename = "cancel")]
+    Cancel(CancelMessage),
+    #[serde(rename = "resp")]
+    Response(ResponseMessage),
+    #[serde(rename = "end")]
+    End(EndMessage),
     #[serde(rename = "error")]
     Error(ErrorMessage),
 }
@@ -133,14 +178,14 @@ async fn stream_sender_loop(
     mut send: mpsc::Sender<Message>,
 ) -> Result<(), mpsc::SendError> {
     while let Some(msg) = client_recv.next().await {
-        send.send(Message::Stream(StreamMessage {
+        send.send(Message::Response(ResponseMessage {
             id: id.clone(),
             payload: msg,
         }))
         .await?;
     }
 
-    send.send(Message::EndStream(EndStreamMessage { id }))
+    send.send(Message::End(EndMessage { id }))
         .await?;
 
     Ok(())
@@ -252,14 +297,18 @@ impl Broker {
                     ).expect("The executor must be running for us to get here");
                 }
             }
-            Message::Squelch(squelch) => match self.outgoing_streams.remove(&squelch.id) {
+            Message::Cancel(cancel) => match self.outgoing_streams.remove(&cancel.id) {
                 Some(_) => {}
-                None => todo!("Handle non-existent stream for squelch"),
+                None => {
+                    // Do nothing. It's possible that a cancel reaches the server after it has
+                    // sent a stream end, so this would have removed the entry. It's the sender's
+                    // responsibility not to reuse an ID until it has seen an end message.
+                }
             },
-            Message::Stream(stream_msg) => match self.incoming_streams.get_mut(&stream_msg.id) {
+            Message::Response(stream_msg) => match self.incoming_streams.get_mut(&stream_msg.id) {
                 Some(sink) => {
                     sink.send(stream_msg.payload).await.unwrap();
-                    // FIXME: An error here means that the client has closed. We should squelch
+                    // FIXME: An error here means that the client has closed. We should cancel
                     // this id, and leave a placeholder to wait for a stream end message.
                 }
 
@@ -271,7 +320,7 @@ impl Broker {
                     anyhow::bail!("Stream protocol error");
                 }
             },
-            Message::EndStream(end) => {
+            Message::End(end) => {
                 match self.incoming_streams.remove(&end.id) {
                     Some(_) => {
                         // Just let the value drop. It should cause the stream to terminate.
