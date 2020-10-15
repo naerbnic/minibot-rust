@@ -1,5 +1,6 @@
 use futures::channel::mpsc;
 use futures::prelude::*;
+use futures::task::{Spawn, SpawnExt as _};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -69,54 +70,60 @@ pub struct ClientChannel {
 }
 
 impl ClientChannel {
-    pub fn start_channel<In, H>(stream: In, sink: mpsc::Sender<Message>, handler: H) -> Self
-    where
-        In: Stream<Item = Message> + Send + Unpin + 'static,
-        H: CommandHandler + 'static,
-    {
-        let (new_chan, fut) = ClientChannel::new_channel(stream, sink, handler);
-        tokio::spawn(fut);
-        new_chan
-    }
-
-    pub fn new_channel<In, H>(
+    pub fn start_channel<In, H, S>(
         stream: In,
         sink: mpsc::Sender<Message>,
+        spawner: S,
         handler: H,
-    ) -> (Self, impl Future<Output = ()>)
+    ) -> Self
     where
         In: Stream<Item = Message> + Send + Unpin + 'static,
         H: CommandHandler + 'static,
+        S: Spawn + Send + Clone + 'static,
     {
         // mpsc channel for output
         let (send, recv) = mpsc::channel(10);
 
         let (event_send, event_recv) = mpsc::channel(10);
 
-        let future = {
-            let event_send = event_send.clone();
-            async move {
-                futures::join!(
-                    join_channel_ends(recv, sink),
-                    join_channel_ends(stream.map(Event::Message), event_send.clone(),),
-                    async move {
-                        let mut broker = Broker::new(handler);
-                        broker.start(event_recv, send).await
-                    }
-                );
-            }
-        };
+        let inner_spawner = spawner.clone();
 
-        (ClientChannel { event_send }, future)
+        spawner
+            .spawn({
+                let event_send = event_send.clone();
+                async move {
+                    futures::join!(
+                        join_channel_ends(recv, sink),
+                        join_channel_ends(stream.map(Event::Message), event_send.clone(),),
+                        async move {
+                            let mut broker = Broker::new(handler, inner_spawner);
+                            broker.start(event_recv, send).await
+                        }
+                    );
+                }
+            })
+            .unwrap();
+
+        ClientChannel {
+            event_send
+        }
     }
 
-    pub fn send_command(
-        &self,
-        _method: &str,
-        _payload: serde_json::Value,
-        _sink: mpsc::Sender<serde_json::Value>,
+    pub async fn send_command(
+        &mut self,
+        method: &str,
+        payload: serde_json::Value,
+        sink: mpsc::Sender<serde_json::Value>,
     ) -> anyhow::Result<()> {
-        todo!()
+        let cmd_event = Event::StartCommand(StartCommandEvent {
+            method: method.to_string(),
+            payload,
+            sink,
+        });
+
+        self.event_send.send(cmd_event).await?;
+
+        Ok(())
     }
 }
 
@@ -124,7 +131,7 @@ async fn stream_sender_loop(
     id: String,
     mut client_recv: mpsc::Receiver<serde_json::Value>,
     mut send: mpsc::Sender<Message>,
-) -> anyhow::Result<()> {
+) -> Result<(), mpsc::SendError> {
     while let Some(msg) = client_recv.next().await {
         send.send(Message::Stream(StreamMessage {
             id: id.clone(),
@@ -153,16 +160,21 @@ enum Event {
 struct Broker {
     incoming_streams: HashMap<String, mpsc::Sender<serde_json::Value>>,
     outgoing_streams: HashMap<String, StreamState>,
-    handler: Box<dyn CommandHandler + 'static>,
+    handler: Box<dyn CommandHandler>,
+    spawner: Box<dyn Spawn + Send>,
     next_id: u32,
 }
 
 impl Broker {
-    pub fn new<H: CommandHandler + 'static>(handler: H) -> Self {
+    pub fn new<H: CommandHandler + 'static, S: Spawn + Send + 'static>(
+        handler: H,
+        spawner: S,
+    ) -> Self {
         Broker {
             incoming_streams: HashMap::new(),
             outgoing_streams: HashMap::new(),
             handler: Box::new(handler),
+            spawner: Box::new(spawner),
             next_id: 1,
         }
     }
@@ -235,11 +247,9 @@ impl Broker {
 
                     // Spawn the future that wraps server outputs, and follows it with an
                     // endstream message
-                    tokio::spawn(stream_sender_loop(
-                        cmd.id.clone(),
-                        client_recv,
-                        send.clone(),
-                    ));
+                    self.spawner.spawn(
+                        stream_sender_loop(cmd.id.clone(), client_recv, send.clone()).map(|_| ()),
+                    ).expect("The executor must be running for us to get here");
                 }
             }
             Message::Squelch(squelch) => match self.outgoing_streams.remove(&squelch.id) {
@@ -248,14 +258,17 @@ impl Broker {
             },
             Message::Stream(stream_msg) => match self.incoming_streams.get_mut(&stream_msg.id) {
                 Some(sink) => {
-                    let _ = sink.send(stream_msg.payload).await;
+                    sink.send(stream_msg.payload).await.unwrap();
+                    // FIXME: An error here means that the client has closed. We should squelch
+                    // this id, and leave a placeholder to wait for a stream end message.
                 }
 
                 None => {
-                    let _ = send.send(Message::Error(ErrorMessage {
+                    send.send(Message::Error(ErrorMessage {
                         id: Some(stream_msg.id.clone()),
                         error: format!("Got a stream message to an unallocated id."),
-                    }));
+                    })).await?;
+                    anyhow::bail!("Stream protocol error");
                 }
             },
             Message::EndStream(end) => {
@@ -265,17 +278,18 @@ impl Broker {
                     }
 
                     None => {
-                        let _ = send.send(Message::Error(ErrorMessage {
+                        send.send(Message::Error(ErrorMessage {
                             id: Some(end.id.clone()),
                             error: format!("Got a stream message to an unallocated id."),
-                        }));
+                        })).await?;
+                        anyhow::bail!("Stream protocol error");
                     }
                 }
             }
 
             Message::Error(err) => {
                 // This should terminate the connection.
-                anyhow::bail!("Got stream error: id: {:?}, error: {}", err.id, err.error);
+                anyhow::bail!("Stream error from peer: id: {:?}, error: {}", err.id, err.error);
             }
         }
 
