@@ -8,6 +8,8 @@ pub struct CancelHandle(Sender<Infallible>);
 
 pub struct CancelToken(Receiver<Infallible>);
 
+pub struct Canceled;
+
 impl CancelToken {
     pub fn is_cancelled(&mut self) -> bool {
         match self.0.try_recv() {
@@ -17,12 +19,30 @@ impl CancelToken {
         }
     }
 
-    pub fn on_cancelled<'a>(
-        &'a mut self,
-    ) -> Fuse<Box<dyn Future<Output = ()> + Send + Unpin + 'a>> {
+    pub fn on_canceled<'a>(&'a mut self) -> Fuse<Box<dyn Future<Output = ()> + Send + Unpin + 'a>> {
         let fut_box: Box<dyn Future<Output = ()> + Send + Unpin + 'a> =
             Box::new((&mut self.0).map(|_| ()));
         fut_box.fuse()
+    }
+
+    pub async fn with_cancelled<F>(&mut self, future: F) -> Result<F::Output, Canceled>
+    where
+        F: Future,
+    {
+        futures::select! {
+            out = future.fuse() => Ok(out),
+            _ = self.on_canceled() => Err(Canceled),
+        }
+    }
+
+    pub async fn with_cancelled_default<F>(&mut self, default: F::Output, future: F) -> F::Output
+    where
+        F: Future,
+    {
+        match self.with_cancelled(future).await {
+            Ok(out) => out,
+            Err(Canceled) => default,
+        }
     }
 }
 
