@@ -31,8 +31,7 @@
 //! the command ID they want to stop receiving responses for. Sending a cancel with an ID does
 //! _not_ free the ID. When B recieves a cancel, it SHOULD end the stream at the earliest
 //! opportunity, being sure to send an "end" message to indicate stream termination. Sending a
-//! cancel message can disregard the internal protocol for the response stream, leaving it
-//! incomplete. What an early cancellation means for these methods is up to the method implementor.
+//! cancel message is advisory, and it's up to the method implementor to define how it is handled.
 //!
 //! The cancel can be part of the protocol of a method. For example, if a method sends back a stream
 //! of live data updates, it does not need to send an end message until the stream is cancelled.
@@ -48,6 +47,7 @@ use futures::prelude::*;
 use futures::task::{Spawn, SpawnExt as _};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::pin::Pin;
 
 use crate::util::cancel::{cancel_pair, CancelHandle, CancelToken};
 
@@ -59,39 +59,39 @@ pub trait CommandHandler: Send {
         payload: &serde_json::Value,
         output: mpsc::Sender<serde_json::Value>,
         cancel: CancelToken,
-    );
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
 pub struct CommandMessage {
     id: String,
     method: String,
     payload: serde_json::Value,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
 pub struct CancelMessage {
     id: String,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
 pub struct ResponseMessage {
     id: String,
     payload: serde_json::Value,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
 pub struct EndMessage {
     id: String,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
 pub struct ErrorMessage {
     error: String,
     id: Option<String>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
 #[serde(tag = "type")]
 pub enum Message {
     #[serde(rename = "cmd")]
@@ -149,9 +149,7 @@ impl ClientChannel {
             })
             .unwrap();
 
-        ClientChannel {
-            event_send
-        }
+        ClientChannel { event_send }
     }
 
     pub async fn send_command(
@@ -185,8 +183,7 @@ async fn stream_sender_loop(
         .await?;
     }
 
-    send.send(Message::End(EndMessage { id }))
-        .await?;
+    send.send(Message::End(EndMessage { id })).await?;
 
     Ok(())
 }
@@ -280,21 +277,26 @@ impl Broker {
                     let (server_send, client_recv) = mpsc::channel(10);
                     let (cancel_handle, cancel_token) = cancel_pair();
 
-                    self.handler.start_command(
-                        &cmd.method,
-                        &cmd.payload,
-                        server_send,
-                        cancel_token,
-                    );
+                    self.spawner
+                        .spawn(self.handler.start_command(
+                            &cmd.method,
+                            &cmd.payload,
+                            server_send,
+                            cancel_token,
+                        ))
+                        .unwrap();
 
                     self.outgoing_streams
                         .insert(cmd.id.clone(), StreamState { cancel_handle });
 
                     // Spawn the future that wraps server outputs, and follows it with an
                     // endstream message
-                    self.spawner.spawn(
-                        stream_sender_loop(cmd.id.clone(), client_recv, send.clone()).map(|_| ()),
-                    ).expect("The executor must be running for us to get here");
+                    self.spawner
+                        .spawn(
+                            stream_sender_loop(cmd.id.clone(), client_recv, send.clone())
+                                .map(|_| ()),
+                        )
+                        .expect("The executor must be running for us to get here");
                 }
             }
             Message::Cancel(cancel) => match self.outgoing_streams.remove(&cancel.id) {
@@ -316,7 +318,8 @@ impl Broker {
                     send.send(Message::Error(ErrorMessage {
                         id: Some(stream_msg.id.clone()),
                         error: format!("Got a stream message to an unallocated id."),
-                    })).await?;
+                    }))
+                    .await?;
                     anyhow::bail!("Stream protocol error");
                 }
             },
@@ -330,7 +333,8 @@ impl Broker {
                         send.send(Message::Error(ErrorMessage {
                             id: Some(end.id.clone()),
                             error: format!("Got a stream message to an unallocated id."),
-                        })).await?;
+                        }))
+                        .await?;
                         anyhow::bail!("Stream protocol error");
                     }
                 }
@@ -338,7 +342,11 @@ impl Broker {
 
             Message::Error(err) => {
                 // This should terminate the connection.
-                anyhow::bail!("Stream error from peer: id: {:?}, error: {}", err.id, err.error);
+                anyhow::bail!(
+                    "Stream error from peer: id: {:?}, error: {}",
+                    err.id,
+                    err.error
+                );
             }
         }
 
@@ -365,5 +373,152 @@ where
         if let Err(_) = send.send(v).await {
             return;
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use serde_json::json;
+
+    #[derive(Clone)]
+    struct TokioSpawner;
+
+    impl Spawn for TokioSpawner {
+        fn spawn_obj(
+            &self,
+            f: futures::future::FutureObj<'static, ()>,
+        ) -> Result<(), futures::task::SpawnError> {
+            tokio::spawn(f);
+            Ok(())
+        }
+    }
+
+    struct EchoHandler;
+
+    impl CommandHandler for EchoHandler {
+        fn start_command(
+            &mut self,
+            method: &str,
+            payload: &serde_json::Value,
+            mut output: mpsc::Sender<serde_json::Value>,
+            _cancel: CancelToken,
+        ) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
+            match method {
+                "echo" => {
+                    let payload = payload.clone();
+                    async move {
+                        output.send(payload).await.unwrap();
+                    }
+                    .boxed()
+                }
+
+                _ => panic!("Unknown method"),
+            }
+        }
+    }
+
+    struct NullHandler;
+
+    impl CommandHandler for NullHandler {
+        fn start_command(
+            &mut self,
+            _method: &str,
+            _payload: &serde_json::Value,
+            _output: mpsc::Sender<serde_json::Value>,
+            _cancel: CancelToken,
+        ) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
+            panic!("Should never be called")
+        }
+    }
+
+    fn make_test_channel<H>(
+        handler: H,
+    ) -> (
+        ClientChannel,
+        mpsc::Sender<Message>,
+        mpsc::Receiver<Message>,
+    )
+    where
+        H: CommandHandler + Send + 'static,
+    {
+        let (sender, in_stream) = mpsc::channel(10);
+        let (out_sink, receiver) = mpsc::channel(10);
+
+        let client_channel =
+            ClientChannel::start_channel(in_stream, out_sink, TokioSpawner, handler);
+
+        (client_channel, sender, receiver)
+    }
+
+    fn make_test_channel_pair<H1, H2>(handler1: H1, handler2: H2) -> (ClientChannel, ClientChannel)
+    where
+        H1: CommandHandler + Send + 'static,
+        H2: CommandHandler + Send + 'static,
+    {
+        let (sender, in_stream) = mpsc::channel(10);
+        let (out_sink, receiver) = mpsc::channel(10);
+
+        let client_channel_1 =
+            ClientChannel::start_channel(in_stream, out_sink, TokioSpawner, handler1);
+        let client_channel_2 =
+            ClientChannel::start_channel(receiver, sender, TokioSpawner, handler2);
+
+        (client_channel_1, client_channel_2)
+    }
+
+    #[tokio::test]
+    async fn raw_simple_test() {
+        let (_chan, mut send, mut recv) = make_test_channel(EchoHandler);
+        let payload_value = json!(
+            {
+                "field1": 1,
+                "field2": "Hello, World!\n",
+            }
+        );
+        send.send(Message::Command(CommandMessage {
+            id: "1".to_string(),
+            method: "echo".to_string(),
+            payload: payload_value.clone(),
+        }))
+        .await
+        .unwrap();
+
+        assert_eq!(
+            recv.next().await.unwrap(),
+            Message::Response(ResponseMessage {
+                id: "1".to_string(),
+                payload: payload_value,
+            })
+        );
+        assert_eq!(
+            recv.next().await.unwrap(),
+            Message::End(EndMessage {
+                id: "1".to_string(),
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn simple_test() -> anyhow::Result<()> {
+        let (_chan1, mut chan2) = make_test_channel_pair(EchoHandler, NullHandler);
+        let payload_value = json!(
+            {
+                "field1": 1,
+                "field2": "Hello, World!\n",
+            }
+        );
+
+        let (sink, resp_stream) = mpsc::channel(10);
+
+        chan2
+            .send_command("echo", payload_value.clone(), sink)
+            .await?;
+
+        let resps = resp_stream.collect::<Vec<_>>().await;
+
+        assert_eq!(resps, vec![payload_value]);
+
+        Ok(())
     }
 }
