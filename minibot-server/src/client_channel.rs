@@ -51,6 +51,12 @@ use std::pin::Pin;
 
 use crate::util::cancel::{cancel_pair, CancelHandle, CancelToken};
 
+#[derive(thiserror::Error, Debug)]
+pub enum CommandError {
+    #[error("Received unknown method: {0:?}")]
+    BadMethod(String),
+}
+
 /// A object-safe trait which can handle incomming commands, and produce a stream of outputs.
 pub trait CommandHandler: Send {
     fn start_command(
@@ -59,36 +65,40 @@ pub trait CommandHandler: Send {
         payload: &serde_json::Value,
         output: mpsc::Sender<serde_json::Value>,
         cancel: CancelToken,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
+    ) -> Result<Pin<Box<dyn Future<Output = ()> + Send + 'static>>, CommandError>;
 }
+
+#[derive(Clone, Copy, Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+#[serde(transparent)]
+pub struct Id(std::num::NonZeroU32);
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
 pub struct CommandMessage {
-    id: String,
+    id: Id,
     method: String,
     payload: serde_json::Value,
 }
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
 pub struct CancelMessage {
-    id: String,
+    id: Id,
 }
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
 pub struct ResponseMessage {
-    id: String,
+    id: Id,
     payload: serde_json::Value,
 }
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
 pub struct EndMessage {
-    id: String,
+    id: Id,
 }
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
 pub struct ErrorMessage {
     error: String,
-    id: Option<String>,
+    id: Option<Id>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
@@ -171,16 +181,13 @@ impl ClientChannel {
 }
 
 async fn stream_sender_loop(
-    id: String,
+    id: Id,
     mut client_recv: mpsc::Receiver<serde_json::Value>,
     mut send: mpsc::Sender<Message>,
 ) -> Result<(), mpsc::SendError> {
     while let Some(msg) = client_recv.next().await {
-        send.send(Message::Response(ResponseMessage {
-            id: id.clone(),
-            payload: msg,
-        }))
-        .await?;
+        send.send(Message::Response(ResponseMessage { id, payload: msg }))
+            .await?;
     }
 
     send.send(Message::End(EndMessage { id })).await?;
@@ -200,8 +207,8 @@ enum Event {
 }
 
 struct Broker {
-    incoming_streams: HashMap<String, mpsc::Sender<serde_json::Value>>,
-    outgoing_streams: HashMap<String, StreamState>,
+    incoming_streams: HashMap<Id, mpsc::Sender<serde_json::Value>>,
+    outgoing_streams: HashMap<Id, StreamState>,
     handler: Box<dyn CommandHandler>,
     spawner: Box<dyn Spawn + Send>,
     next_id: u32,
@@ -268,7 +275,7 @@ impl Broker {
             Message::Command(cmd) => {
                 if self.outgoing_streams.contains_key(&cmd.id) {
                     send.send(Message::Error(ErrorMessage {
-                        error: format!("Started an already running command with id {}", cmd.id),
+                        error: format!("Started an already running command with id {:?}", cmd.id),
                         id: Some(cmd.id.clone()),
                     }))
                     .await
@@ -277,14 +284,25 @@ impl Broker {
                     let (server_send, client_recv) = mpsc::channel(10);
                     let (cancel_handle, cancel_token) = cancel_pair();
 
-                    self.spawner
-                        .spawn(self.handler.start_command(
-                            &cmd.method,
-                            &cmd.payload,
-                            server_send,
-                            cancel_token,
-                        ))
-                        .unwrap();
+                    let cmd_future = match self.handler.start_command(
+                        &cmd.method,
+                        &cmd.payload,
+                        server_send,
+                        cancel_token,
+                    ) {
+                        Ok(cmd_future) => cmd_future,
+                        Err(e) => {
+                            send.send(Message::Error(ErrorMessage {
+                                error: format!("Error with command: {}", e),
+                                id: Some(cmd.id.clone()),
+                            }))
+                            .await
+                            .unwrap();
+                            return Err(e.into());
+                        }
+                    };
+
+                    self.spawner.spawn(cmd_future).unwrap();
 
                     self.outgoing_streams
                         .insert(cmd.id.clone(), StreamState { cancel_handle });
@@ -353,12 +371,12 @@ impl Broker {
         Ok(())
     }
 
-    fn take_new_id(&mut self) -> String {
+    fn take_new_id(&mut self) -> Id {
         let new_id = self.next_id;
         if self.next_id == u32::max_value() {
             self.next_id = 1
         }
-        new_id.to_string()
+        Id(std::num::NonZeroU32::new(new_id).unwrap())
     }
 }
 
@@ -403,20 +421,20 @@ mod test {
             payload: &serde_json::Value,
             mut output: mpsc::Sender<serde_json::Value>,
             mut cancel: CancelToken,
-        ) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
+        ) -> Result<Pin<Box<dyn Future<Output = ()> + Send + 'static>>, CommandError> {
             match method {
                 "echo" => {
                     let payload = payload.clone();
-                    async move {
+                    Ok(async move {
                         cancel
                             .with_cancelled_default(Ok(()), output.send(payload))
                             .await
                             .unwrap();
                     }
-                    .boxed()
+                    .boxed())
                 }
 
-                _ => panic!("Unknown method"),
+                _ => Err(CommandError::BadMethod(method.to_string())),
             }
         }
     }
@@ -426,12 +444,12 @@ mod test {
     impl CommandHandler for NullHandler {
         fn start_command(
             &mut self,
-            _method: &str,
+            method: &str,
             _payload: &serde_json::Value,
             _output: mpsc::Sender<serde_json::Value>,
             _cancel: CancelToken,
-        ) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
-            panic!("Should never be called")
+        ) -> Result<Pin<Box<dyn Future<Output = ()> + Send + 'static>>, CommandError> {
+            Err(CommandError::BadMethod(method.to_string()))
         }
     }
 
@@ -480,7 +498,7 @@ mod test {
             }
         );
         send.send(Message::Command(CommandMessage {
-            id: "1".to_string(),
+            id: Id(std::num::NonZeroU32::new(1).unwrap()),
             method: "echo".to_string(),
             payload: payload_value.clone(),
         }))
@@ -490,14 +508,14 @@ mod test {
         assert_eq!(
             recv.next().await.unwrap(),
             Message::Response(ResponseMessage {
-                id: "1".to_string(),
+                id: Id(std::num::NonZeroU32::new(1).unwrap()),
                 payload: payload_value,
             })
         );
         assert_eq!(
             recv.next().await.unwrap(),
             Message::End(EndMessage {
-                id: "1".to_string(),
+                id: Id(std::num::NonZeroU32::new(1).unwrap()),
             })
         );
     }
