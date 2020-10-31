@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, VecDeque};
+use crate::util::id::{Id, IdGen};
+use futures::lock::Mutex;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::sync::Arc;
 
 use futures::prelude::*;
 use futures::{
@@ -9,6 +12,8 @@ use futures::{
     future::join_all,
 };
 
+use crate::util::opt_cell::{opt_cell, OptCell, OptCellReplacer};
+
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error(transparent)]
@@ -17,29 +22,9 @@ pub enum Error {
     #[error(transparent)]
     OneShot(#[from] oneshot::Canceled),
 }
+
 pub struct Message {
-    channel: String,
     base: MessageBase,
-    sub_id: u32,
-    event_sink: Option<Sender<Event>>,
-}
-
-impl Message {
-    pub async fn ack(mut self) -> Result<(), Error> {
-        let mut sender = self.event_sink.take().unwrap();
-
-        sender.send(self.create_ack_event()).await?;
-
-        Ok(())
-    }
-
-    fn create_ack_event(&self) -> Event {
-        Event::Ack {
-            channel: self.channel.clone(),
-            msg_id: self.base.msg_id,
-            sub_id: self.sub_id,
-        }
-    }
 }
 
 impl std::ops::Deref for Message {
@@ -50,27 +35,28 @@ impl std::ops::Deref for Message {
     }
 }
 
-impl Drop for Message {
-    fn drop(&mut self) {
-        if let Some(mut sender) = self.event_sink.take() {
-            let ack_event = self.create_ack_event();
-            tokio::spawn(async move { sender.send(ack_event).await });
-        }
-    }
-}
-
 #[derive(Clone)]
 pub struct MessageBase {
-    msg_id: u32,
     body: bytes::Bytes,
 }
 
 type MessageStream = Box<dyn Stream<Item = Message> + Send + 'static>;
 
+#[non_exhaustive]
+pub struct Subscription {
+    pub sub_id: Id,
+    pub stream: MessageStream,
+}
+
+#[derive(thiserror::Error, Debug)]
+#[error("The message was not able to be sent.")]
+pub struct PublishError;
+
 #[async_trait::async_trait]
 pub trait MessageBroker: Send {
-    async fn subscribe(&mut self, channel_id: &str) -> Result<MessageStream, Error>;
-    async fn publish(&mut self, channel_id: &str, body: &[u8]) -> Result<(), Error>;
+    async fn subscribe(&mut self, channel_id: &str) -> Result<Subscription, Error>;
+    async fn resume(&mut self, sub_id: Id) -> Result<Subscription, Error>;
+    async fn publish(&mut self, channel_id: &str, body: bytes::Bytes) -> Result<(), PublishError>;
 }
 
 // In-memory fake implementation.
@@ -83,14 +69,8 @@ enum Event {
 
     Subscribe {
         channel: String,
-        id_send: oneshot::Sender<u32>,
+        id_send: oneshot::Sender<Id>,
         output: Sender<MessageBase>,
-    },
-
-    Ack {
-        channel: String,
-        sub_id: u32,
-        msg_id: u32,
     },
 }
 
@@ -112,7 +92,7 @@ impl InMemoryMessageBroker {
 
 #[async_trait::async_trait]
 impl MessageBroker for InMemoryMessageBroker {
-    async fn subscribe(&mut self, channel_id: &str) -> Result<MessageStream, Error> {
+    async fn subscribe(&mut self, channel_id: &str) -> Result<Subscription, Error> {
         let (id_send, id_recv) = oneshot::channel();
         let (msg_send, msg_recv) = channel(10);
         self.event_channel
@@ -128,24 +108,27 @@ impl MessageBroker for InMemoryMessageBroker {
         let stream = msg_recv.map({
             let channel = channel_id.to_string();
             let event_channel = self.event_channel.clone();
-            move |base| Message {
-                base,
-                channel: channel.clone(),
-                sub_id,
-                event_sink: Some(event_channel.clone()),
-            }
+            move |base| Message { base }
         });
 
-        Ok(Box::new(stream))
+        Ok(Subscription {
+            sub_id,
+            stream: Box::new(stream),
+        })
     }
 
-    async fn publish(&mut self, channel_id: &str, body: &[u8]) -> Result<(), Error> {
+    async fn resume(&mut self, sub_id: Id) -> Result<Subscription, Error> {
+        todo!()
+    }
+
+    async fn publish(&mut self, channel_id: &str, body: bytes::Bytes) -> Result<(), PublishError> {
         self.event_channel
             .send(Event::PublishMessage {
                 channel: channel_id.to_string(),
-                body: bytes::Bytes::copy_from_slice(body),
+                body,
             })
-            .await?;
+            .await
+            .map_err(|_| PublishError)?;
 
         Ok(())
     }
@@ -161,94 +144,129 @@ async fn run_message_broker_event_loop(mut event_stream: Receiver<Event>) {
                 id_send,
                 output,
             } => {
-                let sub_id = state.add_listener(&channel, output).await;
+                let sub_id = state.add_subscriber(&channel, output).await;
                 let _ = id_send.send(sub_id);
             }
-            Event::Ack {
-                channel,
-                sub_id,
-                msg_id,
-            } => state.ack_message(&channel, sub_id, msg_id).await,
         }
     }
 }
 
 struct BrokerQueue {
-    backlog: VecDeque<bytes::Bytes>,
-    listeners: BTreeMap<u32, Sender<MessageBase>>,
-    next_sub: u32,
-    next_msg: u32,
+    subscribers: BTreeSet<Id>,
 }
 
 impl BrokerQueue {
     pub fn new() -> Self {
         BrokerQueue {
-            backlog: VecDeque::new(),
-            listeners: BTreeMap::new(),
-            next_sub: 0,
-            next_msg: 0,
+            subscribers: BTreeSet::new(),
         }
     }
+}
 
-    pub fn add_listener(&mut self, listener: Sender<MessageBase>) -> u32 {
-        let sub_id = self.next_sub;
-        self.next_sub += 1;
+struct SubscriptionState {
+    topic: String,
+    message_sink: Mutex<Sender<MessageBase>>,
+    replacer: Mutex<OptCellReplacer<Sender<MessageBase>>>,
+}
 
-        assert!(self.listeners.insert(sub_id, listener).is_none());
-        sub_id
-    }
+impl SubscriptionState {
+    pub fn new(topic: String) -> Self {
+        let (send, mut recv) = channel::<MessageBase>(10);
+        let (mut cell, replacer) = opt_cell::<Sender<MessageBase>>();
 
-    pub async fn publish_message(&mut self, body: bytes::Bytes) {
-        let msg_id = self.next_msg;
-        self.next_msg += 1;
+        tokio::spawn({
+            async move {
+                while let Some(msg) = recv.next().await {
+                    loop {
+                        let borrow_or_timeout = tokio::time::timeout(
+                            std::time::Duration::from_secs(5 * 60),
+                            cell.borrow(),
+                        )
+                        .await;
 
-        let message_base = MessageBase { msg_id, body };
+                        let borrow_result = match borrow_or_timeout {
+                            Err(_) => {
+                                // We timed out waiting for the borrow.
+                                return;
+                            }
+                            Ok(r) => r,
+                        };
 
-        let results = join_all(
-            self.listeners
-                .iter_mut()
-                .map(move |(&id, sender)| sender.send(message_base.clone()).map(move |r| (id, r))),
-        )
-        .await;
-
-        for (id, r) in results {
-            if let Err(_) = r {
-                self.listeners.remove(&id);
+                        if let Ok(output) = borrow_result {
+                            if let Err(_) = output.send(msg.clone()).await {
+                                // The socket got closed on us. We still have a message, so drop
+                                // the sender and wait for another one.
+                                cell.drop_value();
+                            } else {
+                                break;
+                            }
+                        } else {
+                            // The subscription state itself was dropped. Break out of the loop
+                            // entirely. This will drop recv, and propagate the change up.
+                            return;
+                        }
+                    }
+                }
             }
+        });
+
+        SubscriptionState {
+            topic,
+            message_sink: Mutex::new(send),
+            replacer: Mutex::new(replacer),
         }
     }
 
-    pub async fn ack_message(&mut self, _sub_id: u32, _msg_id: u32) {
-        todo!()
+    pub async fn publish(&self, body: MessageBase) -> Result<(), SendError> {
+        let mut guard = self.message_sink.lock().await;
+        guard.send(body).await
+    }
+
+    pub async fn replace(&self, sender: Sender<MessageBase>) {
+        let mut guard = self.replacer.lock().await;
+        guard.replace(sender).await.unwrap();
     }
 }
 
 struct BrokerState {
-    queues: BTreeMap<String, BrokerQueue>,
+    topics: BTreeMap<String, BrokerQueue>,
+    subscriptions: BTreeMap<Id, SubscriptionState>,
+    sub_id_gen: IdGen,
 }
 
 impl BrokerState {
     pub fn new() -> Self {
         BrokerState {
-            queues: BTreeMap::new(),
+            topics: BTreeMap::new(),
+            subscriptions: BTreeMap::new(),
+            sub_id_gen: IdGen::new(),
         }
     }
-    pub async fn add_listener(&mut self, channel: &str, listener: Sender<MessageBase>) -> u32 {
-        self.queues
+    pub async fn add_subscriber(&mut self, channel: &str, listener: Sender<MessageBase>) -> Id {
+        let new_id = self.sub_id_gen.gen_id();
+        let sub_state = SubscriptionState::new(channel.to_string());
+        sub_state.replace(listener).await;
+        self.subscriptions.insert(new_id.clone(), sub_state);
+
+        self.topics
             .entry(channel.to_string())
             .or_insert_with(BrokerQueue::new)
-            .add_listener(listener)
+            .subscribers
+            .insert(new_id.clone());
+
+        new_id
     }
 
     pub async fn publish_message(&mut self, channel: &str, body: bytes::Bytes) {
-        if let Some(queue) = self.queues.get_mut(channel) {
-            queue.publish_message(body).await
-        }
-    }
-
-    pub async fn ack_message(&mut self, channel: &str, sub_id: u32, msg_id: u32) {
-        if let Some(queue) = self.queues.get_mut(channel) {
-            queue.ack_message(sub_id, msg_id).await
+        if let Some(queue) = self.topics.get_mut(channel) {
+            for sub_id in &queue.subscribers {
+                self.subscriptions
+                    .get_mut(sub_id)
+                    .unwrap()
+                    .publish(MessageBase { body: body.clone() })
+                    .await
+                    .unwrap();
+            }
         }
     }
 }
