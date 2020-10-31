@@ -233,7 +233,7 @@ impl<T: AsRef<reqwest::Client> + Sync> HttpTwitchClient<T> {
         let client = self.client.as_ref();
         let endpoint = self.config.api_endpoint();
         Ok(client
-            .request(method, endpoint.join(path).unwrap())
+            .request(method, &endpoint.join(path).unwrap().to_string())
             .header("Authorization", format!("Bearer {}", auth_token.api_token))
             .query(query_args)
             .send()

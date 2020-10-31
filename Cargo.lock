@@ -1270,40 +1270,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "minibot"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "base64 0.11.0",
- "bytes 0.6.0",
- "devsecrets",
- "env_logger",
- "fernet",
- "futures",
- "gotham",
- "gotham_derive",
- "im",
- "lazy_static",
- "log",
- "minibot-common",
- "rand 0.7.3",
- "reqwest",
- "serde",
- "serde_json",
- "serde_urlencoded",
- "sha1",
- "sodiumoxide",
- "thiserror",
- "tokio",
- "tokio-tungstenite",
- "url 2.1.1",
- "url_serde",
- "warp",
- "xdg",
-]
-
-[[package]]
 name = "minibot-byte-string"
 version = "0.1.0"
 
@@ -1402,6 +1368,40 @@ dependencies = [
  "futures_codec",
  "minibot-byte-string",
  "thiserror",
+]
+
+[[package]]
+name = "minibot-server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.11.0",
+ "bytes 0.6.0",
+ "devsecrets",
+ "env_logger",
+ "fernet",
+ "futures",
+ "gotham",
+ "gotham_derive",
+ "im",
+ "lazy_static",
+ "log",
+ "minibot-common",
+ "rand 0.7.3",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+ "sha1",
+ "sodiumoxide",
+ "thiserror",
+ "tokio",
+ "tokio-tungstenite",
+ "url 1.7.2",
+ "url_serde",
+ "warp",
+ "xdg",
 ]
 
 [[package]]

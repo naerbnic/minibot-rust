@@ -8,7 +8,7 @@ mod reqwest_middleware;
 mod services;
 mod util;
 mod ws;
-mod client_channel;
+mod rpc;
 
 use handlers::{OAuthClientInfo, OAuthConfig};
 use services::{

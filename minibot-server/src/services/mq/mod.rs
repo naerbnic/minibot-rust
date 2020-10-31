@@ -1,18 +1,14 @@
 use crate::util::id::{Id, IdGen};
 use futures::lock::Mutex;
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::sync::Arc;
+use std::collections::{BTreeMap, BTreeSet};
 
-use futures::prelude::*;
-use futures::{
-    channel::{
-        mpsc::{channel, Receiver, SendError, Sender},
-        oneshot,
-    },
-    future::join_all,
+use futures::channel::{
+    mpsc::{channel, Receiver, SendError, Sender},
+    oneshot,
 };
+use futures::prelude::*;
 
-use crate::util::opt_cell::{opt_cell, OptCell, OptCellReplacer};
+use crate::util::opt_cell::{opt_cell, OptCellReplacer};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -105,11 +101,7 @@ impl MessageBroker for InMemoryMessageBroker {
 
         let sub_id = id_recv.await?;
 
-        let stream = msg_recv.map({
-            let channel = channel_id.to_string();
-            let event_channel = self.event_channel.clone();
-            move |base| Message { base }
-        });
+        let stream = msg_recv.map(move |base| Message { base });
 
         Ok(Subscription {
             sub_id,
@@ -117,7 +109,7 @@ impl MessageBroker for InMemoryMessageBroker {
         })
     }
 
-    async fn resume(&mut self, sub_id: Id) -> Result<Subscription, Error> {
+    async fn resume(&mut self, _sub_id: Id) -> Result<Subscription, Error> {
         todo!()
     }
 
