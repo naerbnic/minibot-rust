@@ -1,5 +1,5 @@
 use super::handlers::{handle_oauth_callback, handle_start_auth_request};
-use super::reqwest_middleware::ClientHandle;
+use super::middleware::reqwest::ClientHandle;
 use super::{AuthConfirmInfo, AuthRequestInfo};
 use crate::config::oauth;
 use crate::net::ws;
@@ -232,7 +232,7 @@ pub fn router(
 ) -> Router {
     let (chain, pipelines) = single_pipeline(
         new_pipeline()
-            .add(super::reqwest_middleware::NewReqwestClientMiddleware::new(
+            .add(super::middleware::reqwest::NewReqwestClientMiddleware::new(
                 reqwest::Client::new(),
             ))
             .add(StateMiddleware::new(oauth_config))

@@ -1,8 +1,9 @@
+use minibot_common::proof_key::Challenge;
 use serde::{Deserialize, Serialize};
+
 pub mod endpoints;
 pub mod handlers;
-pub mod reqwest_middleware;
-use minibot_common::proof_key::Challenge;
+pub mod middleware;
 
 /// Info stored between the post to the minibot auth exchange start and the
 /// OAuth2 redirect response.
