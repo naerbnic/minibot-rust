@@ -1,4 +1,3 @@
-
 #[repr(transparent)]
 pub struct UrlSafeStr(str);
 
