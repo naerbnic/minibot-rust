@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 
 mod config;
+mod http_server;
 mod net;
 mod services;
 mod util;
-mod http_server;
 
 use config::{OAuthClientInfo, OAuthConfig};
 use services::{
@@ -29,10 +29,7 @@ async fn main() {
         .into_value()
         .expect("Secret is readable");
 
-    let twitch_config = OAuthConfig {
-        client: twitch_client,
-        provider: config::TWITCH_PROVIDER.clone(),
-    };
+    let twitch_config = OAuthConfig::new(config::TWITCH_PROVIDER.clone(), twitch_client);
 
     let auth_service: TokenServiceHandle<AuthRequestInfo> = create_serde();
     let auth_confirm_service: TokenServiceHandle<AuthConfirmInfo> = create_serde();

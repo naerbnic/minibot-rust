@@ -41,13 +41,13 @@ impl TwitchToken for TwitchTokenImpl {
         }
 
         let response = client
-            .post(&self.config.provider.token_endpoint)
+            .post(self.config.provider().token_endpoint())
             .query(&TokenQuery {
-                client_id: &self.config.client.client_id,
-                client_secret: &self.config.client.client_secret,
+                client_id: &self.config.client().client_id(),
+                client_secret: &self.config.client().client_secret(),
                 code,
                 grant_type: "authorization_code",
-                redirect_uri: &self.config.client.redirect_url,
+                redirect_uri: &self.config.client().redirect_url(),
             })
             .send()
             .await?;
