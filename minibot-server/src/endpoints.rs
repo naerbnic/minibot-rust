@@ -5,8 +5,8 @@ use crate::services::{
     token_service::{TokenService, TokenServiceHandle},
     AuthConfirmInfo, AuthRequestInfo,
 };
-use crate::util::types::OAuthScopeList;
-use crate::ws;
+use crate::util::types::scopes::OAuthScopeList;
+use crate::net::ws;
 use futures::prelude::*;
 use gotham::handler::HandlerError;
 use gotham::hyper::{Body, HeaderMap, Response};

@@ -49,7 +49,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::pin::Pin;
 
-use crate::util::cancel::{cancel_pair, CancelHandle, CancelToken};
+use crate::util::future::cancel::{cancel_pair, CancelHandle, CancelToken};
 
 #[derive(thiserror::Error, Debug)]
 pub enum CommandError {

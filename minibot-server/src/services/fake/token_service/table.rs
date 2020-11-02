@@ -1,7 +1,8 @@
-use super::TokenService;
 use crate::util::table::{Error as TableError, Index, Table, Uniqueness};
 use async_trait::async_trait;
 use rand::RngCore;
+
+use crate::services::token_service::TokenService;
 
 fn make_token() -> String {
     let mut bytes = [0u8; 32];

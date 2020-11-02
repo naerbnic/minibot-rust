@@ -1,6 +1,3 @@
-mod serde;
-mod table;
-
 use async_trait::async_trait;
 use std::sync::Arc;
 
@@ -23,6 +20,14 @@ pub struct TokenServiceHandle<T: 'static>(
     Arc<dyn TokenService<T> + Send + Sync + std::panic::RefUnwindSafe>,
 );
 
+impl<T: 'static> TokenServiceHandle<T> {
+    pub fn new<S: TokenService<T> + Send + Sync + std::panic::RefUnwindSafe + 'static>(
+        token_svc: S,
+    ) -> Self {
+        TokenServiceHandle(Arc::new(token_svc))
+    }
+}
+
 impl<T: 'static> Clone for TokenServiceHandle<T> {
     fn clone(&self) -> Self {
         TokenServiceHandle(self.0.clone())
@@ -34,16 +39,4 @@ impl<T> std::ops::Deref for TokenServiceHandle<T> {
     fn deref(&self) -> &(dyn TokenService<T> + 'static) {
         &*self.0
     }
-}
-
-pub fn create_serde<T>() -> TokenServiceHandle<T>
-where
-    T: ::serde::Serialize
-        + ::serde::de::DeserializeOwned
-        + Send
-        + Sync
-        + std::panic::RefUnwindSafe
-        + 'static,
-{
-    TokenServiceHandle(serde::SerdeTokenService::new())
 }

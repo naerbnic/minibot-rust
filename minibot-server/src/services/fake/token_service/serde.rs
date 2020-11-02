@@ -1,9 +1,9 @@
-use super::TokenService;
 use async_trait::async_trait;
 use fernet::Fernet;
 use serde::{de::DeserializeOwned, Serialize};
 use std::panic::RefUnwindSafe;
-use std::sync::Arc;
+
+use crate::services::token_service::TokenService;
 
 pub struct SerdeTokenService<T>
 where
@@ -17,11 +17,11 @@ impl<T> SerdeTokenService<T>
 where
     T: Serialize + DeserializeOwned + Sync + Send + RefUnwindSafe + 'static,
 {
-    pub fn new() -> Arc<dyn TokenService<T> + Send + Sync + RefUnwindSafe> {
-        Arc::new(SerdeTokenService {
+    pub fn new() -> Self {
+        SerdeTokenService {
             encdec: Fernet::new(&Fernet::generate_key()).unwrap(),
             _data: std::marker::PhantomData {},
-        })
+        }
     }
 }
 

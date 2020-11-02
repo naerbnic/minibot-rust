@@ -1,4 +1,4 @@
-mod oauth_scope_list {
+
     use serde::{de::Error as _, Deserialize, Deserializer, Serialize, Serializer};
 
     #[derive(Debug)]
@@ -82,22 +82,3 @@ mod oauth_scope_list {
             OAuthScopeList::from_vec(vec).ok_or_else(|| D::Error::custom("Invalid scope names"))
         }
     }
-}
-
-mod urlsafe_str {
-    #[repr(transparent)]
-    pub struct UrlSafeStr(str);
-
-    #[repr(transparent)]
-    pub struct UrlSafeString(String);
-
-    impl std::ops::Deref for UrlSafeString {
-        type Target = UrlSafeStr;
-        fn deref(&self) -> &UrlSafeStr {
-            // Transmutation is safe, as UrlSafeStr is declared as repr(transparent)
-            unsafe { std::mem::transmute(&*self.0) }
-        }
-    }
-}
-
-pub use oauth_scope_list::OAuthScopeList;

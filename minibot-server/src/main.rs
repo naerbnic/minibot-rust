@@ -4,16 +4,15 @@ mod config;
 mod endpoints;
 mod filters;
 mod handlers;
+mod net;
 mod reqwest_middleware;
 mod services;
 mod util;
-mod ws;
-mod rpc;
 
 use handlers::{OAuthClientInfo, OAuthConfig};
 use services::{
-    token_service::{create_serde, TokenServiceHandle},
-    twitch_token, AuthConfirmInfo, AuthRequestInfo,
+    fake::token_service::create_serde, token_service::TokenServiceHandle, twitch_token,
+    AuthConfirmInfo, AuthRequestInfo,
 };
 
 use futures::prelude::*;
@@ -54,15 +53,11 @@ async fn main() {
 
     println!("Twitch config: {:#?}", twitch_config);
 
-    tokio::spawn(async move {
-        while let Some(_) = recv.next().await {
-
-        }
-    });
+    tokio::spawn(async move { while let Some(_) = recv.next().await {} });
 
     let server = gotham::plain::init_server(("127.0.0.1", 5001), router);
-    tokio::select!{
-        _ = server => (), 
+    tokio::select! {
+        _ = server => (),
         _ = tokio::signal::ctrl_c() => (),
     };
 }

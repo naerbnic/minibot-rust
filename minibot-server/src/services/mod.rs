@@ -6,6 +6,7 @@ pub mod token_service;
 pub mod twitch;
 pub mod twitch_token;
 pub mod mq;
+pub mod fake;
 
 /// Info stored between the post to the minibot auth exchange start and the
 /// OAuth2 redirect response.
