@@ -1,19 +1,27 @@
-use super::handlers::{handle_oauth_callback, handle_start_auth_request};
-use super::middleware::reqwest::ClientHandle;
-use super::{AuthConfirmInfo, AuthRequestInfo};
-use crate::config::oauth;
-use crate::net::ws;
-use crate::services::base::token_service::{TokenService, TokenServiceHandle};
-use crate::services::base::twitch_token::{TwitchTokenHandle, TwitchTokenService};
-use crate::util::types::scopes::OAuthScopeList;
+use super::{
+    handlers::{handle_oauth_callback, handle_start_auth_request},
+    middleware::reqwest::{ClientHandle, NewReqwestClientMiddleware},
+    AuthConfirmInfo, AuthRequestInfo,
+};
+use crate::{
+    config::oauth,
+    net::ws,
+    services::base::{
+        token_service::{TokenService, TokenServiceHandle},
+        twitch_token::{TwitchTokenHandle, TwitchTokenService},
+    },
+    util::types::scopes::OAuthScopeList,
+};
+
 use futures::prelude::*;
-use gotham::handler::HandlerError;
-use gotham::hyper::{Body, HeaderMap, Response};
-use gotham::middleware::state::StateMiddleware;
-use gotham::pipeline::{new_pipeline, single::single_pipeline};
-use gotham::router::builder::*;
-use gotham::router::Router;
-use gotham::state::{request_id, FromState, State};
+use gotham::{
+    handler::HandlerError,
+    hyper::{Body, HeaderMap, Response},
+    middleware::state::StateMiddleware,
+    pipeline::{new_pipeline, single::single_pipeline},
+    router::{builder::*, Router},
+    state::{request_id, FromState, State},
+};
 use gotham_derive::{StateData, StaticResponseExtender};
 use minibot_common::proof_key::{Challenge, Verifier};
 use serde::{Deserialize, Serialize};
@@ -232,9 +240,7 @@ pub fn router(
 ) -> Router {
     let (chain, pipelines) = single_pipeline(
         new_pipeline()
-            .add(super::middleware::reqwest::NewReqwestClientMiddleware::new(
-                reqwest::Client::new(),
-            ))
+            .add(NewReqwestClientMiddleware::new(reqwest::Client::new()))
             .add(StateMiddleware::new(oauth_config))
             .add(StateMiddleware::new(request_token_service))
             .add(StateMiddleware::new(confirm_token_service))

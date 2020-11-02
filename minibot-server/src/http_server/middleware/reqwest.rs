@@ -1,10 +1,12 @@
-use gotham::handler::HandlerFuture;
-use gotham::middleware::{Middleware, NewMiddleware};
-use gotham::state::State;
+use std::{panic::AssertUnwindSafe, pin::Pin};
+
+use gotham::{
+    handler::HandlerFuture,
+    middleware::{Middleware, NewMiddleware},
+    state::State,
+};
 use gotham_derive::StateData;
 use reqwest::Client;
-use std::pin::Pin;
-use std::sync::RwLock;
 
 #[derive(Clone, StateData)]
 pub struct ClientHandle(Client);
@@ -29,11 +31,11 @@ impl Middleware for ReqwestClientMiddleware {
 }
 
 // Note: The RwLock is necessary to meet the requirement that RefUnwindSafe is implemented for the type.
-pub struct NewReqwestClientMiddleware(RwLock<Client>);
+pub struct NewReqwestClientMiddleware(AssertUnwindSafe<Client>);
 
 impl NewReqwestClientMiddleware {
     pub fn new(client: Client) -> Self {
-        NewReqwestClientMiddleware(RwLock::new(client))
+        NewReqwestClientMiddleware(AssertUnwindSafe(client))
     }
 }
 
@@ -41,10 +43,6 @@ impl NewMiddleware for NewReqwestClientMiddleware {
     type Instance = ReqwestClientMiddleware;
 
     fn new_middleware(&self) -> anyhow::Result<Self::Instance> {
-        let client = {
-            let guard = self.0.read().unwrap();
-            guard.clone()
-        };
-        Ok(ReqwestClientMiddleware(client))
+        Ok(ReqwestClientMiddleware(self.0.clone()))
     }
 }
