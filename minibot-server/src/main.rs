@@ -6,7 +6,7 @@ mod net;
 mod services;
 mod util;
 
-use config::{OAuthClientInfo, OAuthConfig};
+use config::oauth;
 use services::{
     fake::token_service::create_serde, token_service::TokenServiceHandle, twitch_token,
     AuthConfirmInfo, AuthRequestInfo,
@@ -23,13 +23,13 @@ async fn main() {
     // warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
     let ds = devsecrets::DevSecrets::from_id(&devsecrets::import_id!()).unwrap();
 
-    let twitch_client: OAuthClientInfo = ds
+    let twitch_client = ds
         .read_from("twitch-client.json")
         .with_format(devsecrets::JsonFormat)
-        .into_value()
+        .into_value::<oauth::ClientInfo>()
         .expect("Secret is readable");
 
-    let twitch_config = OAuthConfig::new(config::TWITCH_PROVIDER.clone(), twitch_client);
+    let twitch_config = oauth::Config::new(config::TWITCH_PROVIDER.clone(), twitch_client);
 
     let auth_service: TokenServiceHandle<AuthRequestInfo> = create_serde();
     let auth_confirm_service: TokenServiceHandle<AuthConfirmInfo> = create_serde();

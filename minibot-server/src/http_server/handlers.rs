@@ -3,13 +3,13 @@ use minibot_common::proof_key;
 use serde::{Deserialize, Serialize};
 use url::Url;
 use crate::services::{token_service::TokenService, AuthConfirmInfo, AuthRequestInfo};
-use crate::config::OAuthConfig;
+use crate::config::oauth;
 
 pub async fn handle_start_auth_request(
     redirect_uri: String,
     challenge: proof_key::Challenge,
     auth_service: &dyn TokenService<AuthRequestInfo>,
-    oauth_config: &OAuthConfig,
+    oauth_config: &oauth::Config,
 ) -> Result<String, anyhow::Error> {
     let url = Url::parse(&*redirect_uri)?;
     if url.scheme() != "http" {
@@ -78,7 +78,7 @@ pub async fn handle_confirm(
     token: String,
     verifier: proof_key::Verifier,
     auth_confirm_service: &dyn TokenService<AuthConfirmInfo>,
-    oauth_config: &OAuthConfig,
+    oauth_config: &oauth::Config,
 ) -> Result<TokenResponse, anyhow::Error> {
     let auth_complete_info = match auth_confirm_service.from_token(&token).await? {
         Some(info) => info,
@@ -105,7 +105,7 @@ pub async fn handle_confirm(
 }
 
 fn create_oauth_code_request_url(
-    config: &OAuthConfig,
+    config: &oauth::Config,
     scopes: impl IntoIterator<Item = impl AsRef<str>>,
     state: &str,
 ) -> Result<String, anyhow::Error> {
@@ -140,7 +140,7 @@ pub struct RefreshResponse {
 pub async fn refresh_oauth_token(
     refresh_token: &str,
     client: &reqwest::Client,
-    oauth_config: &OAuthConfig,
+    oauth_config: &oauth::Config,
 ) -> Result<RefreshResponse, anyhow::Error> {
     let resp_text = client
         .post(oauth_config.provider().token_endpoint())

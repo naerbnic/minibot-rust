@@ -1,6 +1,6 @@
 use super::handlers::{handle_oauth_callback, handle_start_auth_request};
 use super::reqwest_middleware::ClientHandle;
-use crate::config::OAuthConfig;
+use crate::config::oauth;
 use crate::net::ws;
 use crate::services::twitch_token::{TwitchTokenHandle, TwitchTokenService};
 use crate::services::{
@@ -27,7 +27,7 @@ pub struct LoginQuery {
 }
 
 async fn login_handler(state: &mut State) -> Result<Response<Body>, HandlerError> {
-    let oauth_config = OAuthConfig::borrow_from(state).clone();
+    let oauth_config = oauth::Config::borrow_from(state).clone();
     let request_token_service = TokenServiceHandle::<AuthRequestInfo>::take_from(state);
     let login_query = LoginQuery::take_from(state);
 
@@ -226,7 +226,7 @@ where
 }
 
 pub fn router(
-    oauth_config: OAuthConfig,
+    oauth_config: oauth::Config,
     twitch_token_service: TwitchTokenHandle,
     request_token_service: TokenServiceHandle<AuthRequestInfo>,
     confirm_token_service: TokenServiceHandle<AuthConfirmInfo>,

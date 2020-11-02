@@ -1,4 +1,4 @@
-use crate::config::OAuthConfig;
+use crate::config::oauth;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -19,11 +19,11 @@ pub trait TwitchToken {
 }
 
 pub struct TwitchTokenImpl {
-    config: OAuthConfig,
+    config: oauth::Config,
 }
 
 impl TwitchTokenImpl {
-    pub fn new(config: OAuthConfig) -> Self {
+    pub fn new(config: oauth::Config) -> Self {
         TwitchTokenImpl { config }
     }
 }
@@ -62,7 +62,7 @@ pub type TwitchTokenService = dyn TwitchToken + Send + Sync + std::panic::RefUnw
 pub struct TwitchTokenHandle(Arc<TwitchTokenService>);
 
 impl TwitchTokenHandle {
-    pub fn new(config: OAuthConfig) -> Self {
+    pub fn new(config: oauth::Config) -> Self {
         TwitchTokenHandle(Arc::new(TwitchTokenImpl::new(config)))
     }
 }

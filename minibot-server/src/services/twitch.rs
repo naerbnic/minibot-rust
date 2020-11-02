@@ -158,7 +158,7 @@ mod throttled_token_source {
     }
 }
 
-use crate::config::OAuthConfig;
+use crate::config::oauth;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -219,7 +219,7 @@ pub trait TwitchClient {
 
 pub struct HttpTwitchClient<T> {
     client: T,
-    config: Arc<OAuthConfig>,
+    config: Arc<oauth::Config>,
 }
 
 impl<T: AsRef<reqwest::Client> + Sync> HttpTwitchClient<T> {
