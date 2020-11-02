@@ -1,6 +1,6 @@
 use crate::util::table::{Index, Table, Uniqueness};
 
-use crate::services::account::{Account, AccountService, Result};
+use crate::services::base::account::{Account, AccountService, Result};
 use crate::util::error::ResultExt as _;
 
 pub struct InMemoryAccountService {

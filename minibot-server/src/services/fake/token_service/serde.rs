@@ -3,7 +3,7 @@ use fernet::Fernet;
 use serde::{de::DeserializeOwned, Serialize};
 use std::panic::RefUnwindSafe;
 
-use crate::services::token_service::TokenService;
+use crate::services::base::token_service::TokenService;
 
 pub struct SerdeTokenService<T>
 where

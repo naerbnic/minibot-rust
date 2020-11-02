@@ -1,12 +1,8 @@
 use minibot_common::proof_key::Challenge;
 use serde::{Deserialize, Serialize};
 
-pub mod account;
+pub mod base;
 pub mod fake;
-pub mod mq;
-pub mod token_service;
-pub mod twitch;
-pub mod twitch_token;
 
 /// Info stored between the post to the minibot auth exchange start and the
 /// OAuth2 redirect response.

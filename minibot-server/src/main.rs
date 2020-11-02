@@ -8,7 +8,7 @@ mod util;
 
 use config::oauth;
 use services::{
-    fake::token_service::create_serde, token_service::TokenServiceHandle, twitch_token,
+    fake::token_service::create_serde, base::{token_service::TokenServiceHandle, twitch_token},
     AuthConfirmInfo, AuthRequestInfo,
 };
 

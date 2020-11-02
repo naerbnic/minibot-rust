@@ -1,5 +1,5 @@
 use crate::config::oauth;
-use crate::services::{token_service::TokenService, AuthConfirmInfo, AuthRequestInfo};
+use crate::services::{base::token_service::TokenService, AuthConfirmInfo, AuthRequestInfo};
 use anyhow::bail;
 use minibot_common::proof_key;
 use serde::{Deserialize, Serialize};

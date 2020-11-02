@@ -1,4 +1,4 @@
-use crate::services::token_service::TokenServiceHandle;
+use crate::services::base::token_service::TokenServiceHandle;
 
 pub mod serde;
 pub mod table;

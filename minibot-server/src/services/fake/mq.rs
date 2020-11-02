@@ -10,7 +10,7 @@ use futures::prelude::*;
 
 use crate::util::future::opt_cell::{opt_cell, OptCellReplacer};
 
-use crate::services::mq::{Error, MessageBroker, PublishError, Subscription};
+use crate::services::base::mq::{Error, MessageBroker, PublishError, Subscription};
 
 pub struct Message {
     base: MessageBase,

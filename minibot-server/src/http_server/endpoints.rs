@@ -2,9 +2,9 @@ use super::handlers::{handle_oauth_callback, handle_start_auth_request};
 use super::reqwest_middleware::ClientHandle;
 use crate::config::oauth;
 use crate::net::ws;
-use crate::services::twitch_token::{TwitchTokenHandle, TwitchTokenService};
+use crate::services::base::twitch_token::{TwitchTokenHandle, TwitchTokenService};
 use crate::services::{
-    token_service::{TokenService, TokenServiceHandle},
+    base::token_service::{TokenService, TokenServiceHandle},
     AuthConfirmInfo, AuthRequestInfo,
 };
 use crate::util::types::scopes::OAuthScopeList;
