@@ -1,15 +1,12 @@
 #![allow(dead_code)]
 
 mod config;
-mod endpoints;
-mod filters;
-mod handlers;
 mod net;
-mod reqwest_middleware;
 mod services;
 mod util;
+mod http_server;
 
-use handlers::{OAuthClientInfo, OAuthConfig};
+use config::{OAuthClientInfo, OAuthConfig};
 use services::{
     fake::token_service::create_serde, token_service::TokenServiceHandle, twitch_token,
     AuthConfirmInfo, AuthRequestInfo,
@@ -43,7 +40,7 @@ async fn main() {
 
     let (send, mut recv) = futures::channel::mpsc::channel(10);
 
-    let router = endpoints::router(
+    let router = http_server::endpoints::router(
         twitch_config.clone(),
         twitch_token_service,
         auth_service,

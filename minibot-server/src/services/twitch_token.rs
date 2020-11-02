@@ -1,4 +1,4 @@
-use crate::handlers::OAuthConfig;
+use crate::config::OAuthConfig;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;

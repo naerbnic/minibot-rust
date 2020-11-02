@@ -158,7 +158,7 @@ mod throttled_token_source {
     }
 }
 
-use crate::handlers::OAuthConfig;
+use crate::config::OAuthConfig;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::sync::Arc;
 

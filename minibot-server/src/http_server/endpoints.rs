@@ -1,12 +1,13 @@
-use crate::handlers::{handle_oauth_callback, handle_start_auth_request, OAuthConfig};
-use crate::reqwest_middleware::ClientHandle;
+use super::handlers::{handle_oauth_callback, handle_start_auth_request};
+use super::reqwest_middleware::ClientHandle;
+use crate::config::OAuthConfig;
+use crate::net::ws;
 use crate::services::twitch_token::{TwitchTokenHandle, TwitchTokenService};
 use crate::services::{
     token_service::{TokenService, TokenServiceHandle},
     AuthConfirmInfo, AuthRequestInfo,
 };
 use crate::util::types::scopes::OAuthScopeList;
-use crate::net::ws;
 use futures::prelude::*;
 use gotham::handler::HandlerError;
 use gotham::hyper::{Body, HeaderMap, Response};
@@ -167,15 +168,19 @@ pub trait CloneSink<V>:
     fn box_clone(&self) -> Box<dyn CloneSink<V>>;
 }
 
-impl<T, V> CloneSink<V> for T where
-    T: Sink<V, Error = futures::channel::mpsc::SendError> + Send + Sync + Clone + 'static + ?Sized
+impl<T, V> CloneSink<V> for T
+where
+    T: Sink<V, Error = futures::channel::mpsc::SendError> + Send + Sync + Clone + 'static + ?Sized,
 {
     fn box_clone(&self) -> Box<dyn CloneSink<V>> {
         Box::new(self.clone())
     }
 }
 
-impl<V> Clone for Box<dyn CloneSink<V>> where V: 'static {
+impl<V> Clone for Box<dyn CloneSink<V>>
+where
+    V: 'static,
+{
     fn clone(&self) -> Self {
         self.box_clone()
     }
@@ -229,7 +234,7 @@ pub fn router(
 ) -> Router {
     let (chain, pipelines) = single_pipeline(
         new_pipeline()
-            .add(crate::reqwest_middleware::NewReqwestClientMiddleware::new(
+            .add(super::reqwest_middleware::NewReqwestClientMiddleware::new(
                 reqwest::Client::new(),
             ))
             .add(StateMiddleware::new(oauth_config))
