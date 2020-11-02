@@ -15,9 +15,11 @@ impl InMemoryAccountService {
         let streamer_user_id_index = table
             .add_index_borrowed(Uniqueness::NotUnique, |a: &Account| {
                 &a.streamer_account.user_id
-            }).map_err_internal()?;
-        let bot_user_id_index =
-            table.add_index_borrowed(Uniqueness::NotUnique, |a| &a.bot_account.user_id).map_err_internal()?;
+            })
+            .map_err_internal()?;
+        let bot_user_id_index = table
+            .add_index_borrowed(Uniqueness::NotUnique, |a| &a.bot_account.user_id)
+            .map_err_internal()?;
 
         Ok(InMemoryAccountService {
             table,

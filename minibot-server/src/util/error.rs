@@ -9,7 +9,7 @@ pub trait ResultExt {
     fn map_err_internal<E: FromInternalError>(self) -> Result<Self::T, E>;
 }
 
-impl <T, E: Error + Send + 'static> ResultExt for Result<T, E> {
+impl<T, E: Error + Send + 'static> ResultExt for Result<T, E> {
     type T = T;
     fn map_err_internal<E2: FromInternalError>(self) -> Result<T, E2> {
         self.map_err(E2::from_internal)

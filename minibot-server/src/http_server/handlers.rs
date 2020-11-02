@@ -1,9 +1,9 @@
+use crate::config::oauth;
+use crate::services::{token_service::TokenService, AuthConfirmInfo, AuthRequestInfo};
 use anyhow::bail;
 use minibot_common::proof_key;
 use serde::{Deserialize, Serialize};
 use url::Url;
-use crate::services::{token_service::TokenService, AuthConfirmInfo, AuthRequestInfo};
-use crate::config::oauth;
 
 pub async fn handle_start_auth_request(
     redirect_uri: String,
