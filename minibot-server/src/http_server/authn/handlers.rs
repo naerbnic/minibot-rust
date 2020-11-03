@@ -4,12 +4,12 @@ use serde::{Deserialize, Serialize};
 use url::Url;
 
 use super::{AuthConfirmInfo, AuthRequestInfo};
-use crate::{config::oauth, services::base::token_service::TokenService};
+use crate::{config::oauth, services::base::token_store::TokenStoreHandle};
 
 pub async fn handle_start_auth_request(
     redirect_uri: String,
     challenge: proof_key::Challenge,
-    auth_service: &dyn TokenService<AuthRequestInfo>,
+    token_store: &TokenStoreHandle,
     oauth_config: &oauth::Config,
 ) -> Result<String, anyhow::Error> {
     let url = Url::parse(&*redirect_uri)?;
@@ -26,7 +26,7 @@ pub async fn handle_start_auth_request(
         challenge,
     };
 
-    let token = auth_service.to_token(auth_request).await?;
+    let token = token_store.val_to_token(&auth_request).await?;
 
     let redirect_uri = create_oauth_code_request_url(
         &*oauth_config,
@@ -40,10 +40,9 @@ pub async fn handle_start_auth_request(
 pub async fn handle_oauth_callback(
     code: String,
     state: String,
-    auth_service: &dyn TokenService<AuthRequestInfo>,
-    auth_confirm_service: &dyn TokenService<AuthConfirmInfo>,
+    token_store: &TokenStoreHandle,
 ) -> Result<String, anyhow::Error> {
-    let auth_req = match auth_service.from_token(&state).await? {
+    let auth_req: AuthRequestInfo = match token_store.val_from_token(&state).await? {
         Some(auth_req) => auth_req,
         None => anyhow::bail!("Could not retrieve token."),
     };
@@ -53,7 +52,7 @@ pub async fn handle_oauth_callback(
         challenge: auth_req.challenge.clone(),
     };
 
-    let token = auth_confirm_service.to_token(confirm_info).await?;
+    let token = token_store.val_to_token(&confirm_info).await?;
 
     let mut local_redirect_url = Url::parse(&auth_req.local_redirect)?;
     local_redirect_url
@@ -78,16 +77,16 @@ pub async fn handle_confirm(
     client: &reqwest::Client,
     token: String,
     verifier: proof_key::Verifier,
-    auth_confirm_service: &dyn TokenService<AuthConfirmInfo>,
+    token_store: &TokenStoreHandle,
     oauth_config: &oauth::Config,
 ) -> Result<TokenResponse, anyhow::Error> {
-    let auth_complete_info = match auth_confirm_service.from_token(&token).await? {
-        Some(info) => info,
-        None => anyhow::bail!("Could not retrieve token."),
-    };
+    let auth_complete_info: AuthConfirmInfo = token_store
+        .val_from_token(&token)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Could not retrieve token."))?;
     verifier.verify(&auth_complete_info.challenge)?;
+    
     // Now that we're all verified, finish the key exchange
-
     let response_text = client
         .post(oauth_config.provider().token_endpoint())
         .query(&[

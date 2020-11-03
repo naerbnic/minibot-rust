@@ -2,4 +2,4 @@
 
 pub mod account;
 pub mod mq;
-pub mod token_service;
+pub mod token_store;

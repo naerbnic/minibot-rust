@@ -7,10 +7,7 @@ mod services;
 mod util;
 
 use config::oauth;
-use http_server::{AuthConfirmInfo, AuthRequestInfo};
-use services::{
-    base::token_service::TokenServiceHandle, fake::token_service::create_serde, live::twitch_token,
-};
+use services::{fake::token_store, live::twitch_token};
 
 use futures::prelude::*;
 
@@ -31,17 +28,14 @@ async fn main() {
 
     let twitch_config = oauth::Config::new(config::TWITCH_PROVIDER.clone(), twitch_client);
 
-    let auth_service: TokenServiceHandle<AuthRequestInfo> = create_serde();
-    let auth_confirm_service: TokenServiceHandle<AuthConfirmInfo> = create_serde();
     let twitch_token_service = twitch_token::TwitchTokenHandle::new(twitch_config.clone());
 
     let (send, mut recv) = futures::channel::mpsc::channel(10);
 
-    let router = http_server::endpoints::router(
+    let router = http_server::authn::router(
         twitch_config.clone(),
         twitch_token_service,
-        auth_service,
-        auth_confirm_service,
+        token_store::create(),
         Box::new(send),
     );
 

@@ -1,13 +1,13 @@
 use super::{
     handlers::{handle_oauth_callback, handle_start_auth_request},
-    middleware::reqwest::{ClientHandle, NewReqwestClientMiddleware},
-    AuthConfirmInfo, AuthRequestInfo,
+    AuthConfirmInfo,
 };
 use crate::{
     config::oauth,
+    http_server::middleware::reqwest::{ClientHandle, NewReqwestClientMiddleware},
     net::ws,
     services::{
-        base::token_service::{TokenService, TokenServiceHandle},
+        base::token_store::TokenStoreHandle,
         live::twitch_token::{TwitchTokenHandle, TwitchTokenService},
     },
     util::types::scopes::OAuthScopeList,
@@ -34,13 +34,13 @@ pub struct LoginQuery {
 
 async fn login_handler(state: &mut State) -> Result<Response<Body>, HandlerError> {
     let oauth_config = oauth::Config::borrow_from(state).clone();
-    let request_token_service = TokenServiceHandle::<AuthRequestInfo>::take_from(state);
+    let token_store = TokenStoreHandle::take_from(state);
     let login_query = LoginQuery::take_from(state);
 
     let redirect = handle_start_auth_request(
         login_query.redirect_uri.clone(),
         login_query.challenge.clone(),
-        &*request_token_service,
+        &token_store,
         &oauth_config,
     )
     .await?;
@@ -60,15 +60,13 @@ pub struct CallbackQuery {
 }
 
 async fn callback_handler(state: &mut State) -> Result<Response<Body>, HandlerError> {
-    let request_token_service = TokenServiceHandle::<AuthRequestInfo>::take_from(state);
-    let confirm_token_service = TokenServiceHandle::<AuthConfirmInfo>::take_from(state);
+    let token_store = TokenStoreHandle::take_from(state);
     let callback_query = CallbackQuery::take_from(state);
 
     let redirect = handle_oauth_callback(
         callback_query.code.clone(),
         callback_query.state.clone(),
-        &*request_token_service,
-        &*confirm_token_service,
+        &token_store,
     )
     .await?;
 
@@ -94,7 +92,7 @@ async fn handle_endpoint(
     client: &reqwest::Client,
     q: &ConfirmQuery,
     twitch_token_service: &TwitchTokenService,
-    confirm: &dyn TokenService<AuthConfirmInfo>,
+    confirm: &TokenStoreHandle,
 ) -> anyhow::Result<String> {
     #[derive(Deserialize, Debug)]
     struct TokenResponse {
@@ -106,7 +104,7 @@ async fn handle_endpoint(
         token_type: String,
     }
 
-    let auth_confirm_info = match confirm.from_token(&q.token).await? {
+    let auth_confirm_info: AuthConfirmInfo = match confirm.val_from_token(&q.token).await? {
         Some(info) => info,
         None => anyhow::bail!("Could not find confirmation."),
     };
@@ -123,7 +121,7 @@ async fn handle_endpoint(
 
 async fn confirm_handler(state: &mut State) -> Result<Response<Body>, HandlerError> {
     let reqwest_client = ClientHandle::take_from(state);
-    let confirm_token_service = TokenServiceHandle::<AuthConfirmInfo>::take_from(state);
+    let token_store = TokenStoreHandle::take_from(state);
     let twitch_token_service = TwitchTokenHandle::take_from(state);
     let confirm_query = ConfirmQuery::take_from(state);
 
@@ -131,7 +129,7 @@ async fn confirm_handler(state: &mut State) -> Result<Response<Body>, HandlerErr
         &reqwest_client,
         &confirm_query,
         &*twitch_token_service,
-        &*confirm_token_service,
+        &token_store,
     )
     .await?;
 
@@ -234,16 +232,14 @@ where
 pub fn router(
     oauth_config: oauth::Config,
     twitch_token_service: TwitchTokenHandle,
-    request_token_service: TokenServiceHandle<AuthRequestInfo>,
-    confirm_token_service: TokenServiceHandle<AuthConfirmInfo>,
+    token_store: TokenStoreHandle,
     socket_sink: Box<dyn CloneSink<ws::WebSocket>>,
 ) -> Router {
     let (chain, pipelines) = single_pipeline(
         new_pipeline()
             .add(NewReqwestClientMiddleware::new(reqwest::Client::new()))
             .add(StateMiddleware::new(oauth_config))
-            .add(StateMiddleware::new(request_token_service))
-            .add(StateMiddleware::new(confirm_token_service))
+            .add(StateMiddleware::new(token_store))
             .add(StateMiddleware::new(twitch_token_service))
             .add(StateMiddleware::new(ValueWrapper::new(socket_sink)))
             .build(),
