@@ -34,7 +34,8 @@ pub struct TwitchUser {
     view_count: u64,
 }
 
-/// Many responses from twitch are wrapped in an object with a single "data" array field. This acts as a wrapper for that.
+/// Many responses from twitch are wrapped in an object with a single "data" array field. This acts
+/// as a wrapper for that.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct DataWrapper<T> {
     data: Vec<T>,

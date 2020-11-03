@@ -9,8 +9,7 @@ mod util;
 use config::oauth;
 use http_server::{AuthConfirmInfo, AuthRequestInfo};
 use services::{
-    base::{token_service::TokenServiceHandle, twitch_token},
-    fake::token_service::create_serde,
+    base::token_service::TokenServiceHandle, fake::token_service::create_serde, live::twitch_token,
 };
 
 use futures::prelude::*;

@@ -6,9 +6,9 @@ use super::{
 use crate::{
     config::oauth,
     net::ws,
-    services::base::{
-        token_service::{TokenService, TokenServiceHandle},
-        twitch_token::{TwitchTokenHandle, TwitchTokenService},
+    services::{
+        base::token_service::{TokenService, TokenServiceHandle},
+        live::twitch_token::{TwitchTokenHandle, TwitchTokenService},
     },
     util::types::scopes::OAuthScopeList,
 };
