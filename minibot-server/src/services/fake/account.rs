@@ -1,6 +1,6 @@
 use crate::util::table::{Index, Table, Uniqueness};
 
-use crate::services::base::account::{Account, AccountService, Result};
+use crate::services::base::account::{Account, AccountStore, Result};
 use crate::util::error::ResultExt as _;
 
 pub struct InMemoryAccountService {
@@ -30,7 +30,7 @@ impl InMemoryAccountService {
 }
 
 #[async_trait::async_trait]
-impl AccountService for InMemoryAccountService {
+impl AccountStore for InMemoryAccountService {
     async fn create_account(&self, acct: Account) -> Result<u64> {
         Ok(self.table.add(acct).map_err_internal()?)
     }

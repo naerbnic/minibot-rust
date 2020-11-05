@@ -26,7 +26,7 @@ pub async fn handle_start_auth_request(
         challenge,
     };
 
-    let token = token_store.val_to_token(&auth_request).await?;
+    let token = token_store.to_token(&auth_request).await?;
 
     let redirect_uri = create_oauth_code_request_url(
         &*oauth_config,
@@ -42,7 +42,7 @@ pub async fn handle_oauth_callback(
     state: String,
     token_store: &TokenStoreHandle,
 ) -> Result<String, anyhow::Error> {
-    let auth_req: AuthRequestInfo = match token_store.val_from_token(&state).await? {
+    let auth_req: AuthRequestInfo = match token_store.from_token(&state).await? {
         Some(auth_req) => auth_req,
         None => anyhow::bail!("Could not retrieve token."),
     };
@@ -52,7 +52,7 @@ pub async fn handle_oauth_callback(
         challenge: auth_req.challenge.clone(),
     };
 
-    let token = token_store.val_to_token(&confirm_info).await?;
+    let token = token_store.to_token(&confirm_info).await?;
 
     let mut local_redirect_url = Url::parse(&auth_req.local_redirect)?;
     local_redirect_url
@@ -81,7 +81,7 @@ pub async fn handle_confirm(
     oauth_config: &oauth::Config,
 ) -> Result<TokenResponse, anyhow::Error> {
     let auth_complete_info: AuthConfirmInfo = token_store
-        .val_from_token(&token)
+        .from_token(&token)
         .await?
         .ok_or_else(|| anyhow::anyhow!("Could not retrieve token."))?;
     verifier.verify(&auth_complete_info.challenge)?;

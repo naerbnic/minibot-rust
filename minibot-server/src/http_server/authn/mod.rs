@@ -17,6 +17,8 @@ struct AuthRequestInfo {
     pub challenge: Challenge,
 }
 
+impl crate::services::base::token_store::TokenData for AuthRequestInfo {}
+
 /// Info stored between returning the token via redirect to the user and the
 /// user submitting the token to the account-create/bot-add endpoint with the
 /// challenge verifier
@@ -31,6 +33,8 @@ struct AuthConfirmInfo {
     /// person who requested it.
     pub challenge: Challenge,
 }
+
+impl crate::services::base::token_store::TokenData for AuthConfirmInfo {}
 
 #[derive(Clone, Serialize, Deserialize)]
 struct IdentityInfo {

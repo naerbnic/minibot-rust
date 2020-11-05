@@ -16,7 +16,7 @@ use crate::{
 use futures::prelude::*;
 use gotham::{
     handler::HandlerError,
-    hyper::{Body, HeaderMap, Response},
+    hyper::{Body, Response},
     middleware::state::StateMiddleware,
     pipeline::{new_pipeline, single::single_pipeline},
     router::{builder::*, Router},
@@ -92,7 +92,7 @@ async fn handle_endpoint(
     client: &reqwest::Client,
     q: &ConfirmQuery,
     twitch_token_service: &TwitchTokenService,
-    confirm: &TokenStoreHandle,
+    token_store: &TokenStoreHandle,
 ) -> anyhow::Result<String> {
     #[derive(Deserialize, Debug)]
     struct TokenResponse {
@@ -104,7 +104,7 @@ async fn handle_endpoint(
         token_type: String,
     }
 
-    let auth_confirm_info: AuthConfirmInfo = match confirm.val_from_token(&q.token).await? {
+    let auth_confirm_info: AuthConfirmInfo = match token_store.from_token(&q.token).await? {
         Some(info) => info,
         None => anyhow::bail!("Could not find confirmation."),
     };
@@ -137,16 +137,14 @@ async fn confirm_handler(state: &mut State) -> Result<Response<Body>, HandlerErr
 }
 
 async fn socket_handler(state: &mut State) -> Result<Response<Body>, HandlerError> {
-    let body = Body::take_from(state);
-    let headers = HeaderMap::take_from(state);
     let mut socket_sink =
         ValueWrapper::<futures::channel::mpsc::Sender<ws::WebSocket>>::borrow_from(state)
             .clone_inner();
 
     let req_id = request_id(state).to_owned();
 
-    if ws::requested(&headers) {
-        let (response, ws_future) = ws::accept(&headers, body)?;
+    if ws::requested(state) {
+        let (response, ws_future) = ws::accept(state)?;
 
         tokio::spawn(async move {
             match ws_future.await {

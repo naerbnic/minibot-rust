@@ -1,9 +1,12 @@
 use futures::prelude::*;
-use gotham::hyper::{
-    self,
-    header::{HeaderValue, CONNECTION, SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY, UPGRADE},
-    upgrade::Upgraded,
-    Body, HeaderMap, Response, StatusCode,
+use gotham::{
+    hyper::{
+        self,
+        header::{HeaderValue, CONNECTION, SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY, UPGRADE},
+        upgrade::Upgraded,
+        Body, HeaderMap, Response, StatusCode,
+    },
+    state::{FromState, State},
 };
 use sha1::Sha1;
 use tokio_tungstenite::{tungstenite, WebSocketStream};
@@ -15,13 +18,13 @@ pub type WebSocket = WebSocketStream<Upgraded>;
 
 const PROTO_WEBSOCKET: &str = "websocket";
 
-pub fn requested(headers: &HeaderMap) -> bool {
+pub fn requested(state: &State) -> bool {
+    let headers = HeaderMap::borrow_from(state);
     headers.get(UPGRADE) == Some(&HeaderValue::from_static(PROTO_WEBSOCKET))
 }
 
 pub fn accept(
-    headers: &HeaderMap,
-    body: Body,
+    state: &mut State,
 ) -> Result<
     (
         Response<Body>,
@@ -29,6 +32,8 @@ pub fn accept(
     ),
     anyhow::Error,
 > {
+    let body = Body::take_from(state);
+    let headers = HeaderMap::borrow_from(state);
     let res = response(headers)?;
     let ws = async move {
         let upgraded = body.on_upgrade().await?;

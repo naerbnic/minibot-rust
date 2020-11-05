@@ -3,11 +3,11 @@ use crate::util::error::FromInternalError;
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("Internal error: {0:?}")]
-    Internal(#[source] Box<dyn std::error::Error + Send>),
+    Internal(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
 
 impl FromInternalError for Error {
-    fn from_internal<E: std::error::Error + Send + 'static>(err: E) -> Self {
+    fn from_internal<E: std::error::Error + Send + Sync + 'static>(err: E) -> Self {
         Error::Internal(Box::new(err))
     }
 }
@@ -29,7 +29,9 @@ pub struct Account {
 }
 
 #[async_trait::async_trait]
-pub trait AccountService: Send + Sync {
+pub trait AccountStore: Send + Sync {
     async fn create_account(&self, acct: Account) -> Result<u64>;
     async fn get_account(&self, user_id: u64) -> Result<Option<Account>>;
 }
+
+define_deref_handle!(AccountStoreHandle, AccountStore);
