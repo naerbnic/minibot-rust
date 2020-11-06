@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+mod channels;
 mod config;
 mod http_server;
 mod net;
