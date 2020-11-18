@@ -43,18 +43,27 @@
 //! there a way to recreate a stream setting, or should that be part of the layer above this one?
 
 use futures::channel::mpsc;
+use futures::future::BoxFuture;
 use futures::prelude::*;
-use futures::task::{Spawn, SpawnExt as _};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::pin::Pin;
 
-use crate::util::future::cancel::{cancel_pair, CancelHandle, CancelToken};
+use crate::util::future::{
+    cancel::{cancel_pair, CancelHandle, CancelToken},
+    deser_json_pipe, pipe, ser_json_pipe,
+};
 
 #[derive(thiserror::Error, Debug)]
 pub enum CommandError {
     #[error("Received unknown method: {0:?}")]
     BadMethod(String),
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum ChannelError {
+    #[error("Error while serde JSON: {0}")]
+    SerdeError(#[from] serde_json::Error),
 }
 
 /// A object-safe trait which can handle incomming commands, and produce a stream of outputs.
@@ -125,41 +134,87 @@ pub struct ClientChannel {
 }
 
 impl ClientChannel {
-    pub fn start_channel<In, H, S>(
-        stream: In,
-        sink: mpsc::Sender<Message>,
-        spawner: S,
+    pub fn new_channel<In, Out, H>(
+        input_string_end: In,
+        output_string_start: Out,
         handler: H,
-    ) -> Self
+    ) -> (Self, BoxFuture<'static, ()>)
     where
-        In: Stream<Item = Message> + Send + Unpin + 'static,
+        In: Stream + Unpin + Send + 'static,
+        In::Item: std::borrow::Borrow<str> + Send,
+        Out: Sink<String> + Unpin + Send + 'static,
+        Out::Error: Send,
         H: CommandHandler + 'static,
-        S: Spawn + Send + Clone + 'static,
+    {
+        let (input_msg_start, input_msg_end) = mpsc::channel(0);
+        let (output_msg_start, output_msg_end) = mpsc::channel(0);
+
+        let (client, fut) =
+            ClientChannel::new_message_channel(input_msg_end, output_msg_start, handler);
+
+        (
+            client,
+            async move {
+                let _ = futures::join!(
+                    fut,
+                    deser_json_pipe(input_string_end, input_msg_start),
+                    ser_json_pipe(output_msg_end, output_string_start),
+                );
+            }
+            .boxed(),
+        )
+    }
+
+    pub fn new_message_channel<In, Out, H>(
+        stream: In,
+        sink: Out,
+        handler: H,
+    ) -> (Self, BoxFuture<'static, Result<(), ChannelError>>)
+    where
+        In: Stream<Item = Message> + Unpin + Send + 'static,
+        Out: Sink<Message> + Unpin + Send + 'static,
+        Out::Error: Send,
+        H: CommandHandler + 'static,
     {
         // mpsc channel for output
-        let (send, recv) = mpsc::channel(10);
+        let (send, recv) = mpsc::channel(0);
 
         let (event_send, event_recv) = mpsc::channel(10);
 
-        let inner_spawner = spawner.clone();
+        let fut = {
+            let event_send = event_send.clone();
+            async move {
+                let (_, _, _) = futures::join!(
+                    pipe(recv, sink),
+                    pipe(stream.map(Event::Message), event_send.clone(),),
+                    async move {
+                        let mut broker = Broker::new(handler);
+                        broker.start(event_recv, send).await
+                    }
+                );
 
-        spawner
-            .spawn({
-                let event_send = event_send.clone();
-                async move {
-                    futures::join!(
-                        join_channel_ends(recv, sink),
-                        join_channel_ends(stream.map(Event::Message), event_send.clone(),),
-                        async move {
-                            let mut broker = Broker::new(handler, inner_spawner);
-                            broker.start(event_recv, send).await
-                        }
-                    );
-                }
-            })
-            .unwrap();
+                Ok(())
+            }
+            .boxed()
+        };
 
-        ClientChannel { event_send }
+        (ClientChannel { event_send }, fut)
+    }
+
+    pub fn start_message_channel<In, Out, H>(
+        stream: In,
+        sink: Out,
+        handler: H,
+    ) -> Self
+    where
+        In: Stream<Item = Message> + Unpin + Send + 'static,
+        Out: Sink<Message> + Unpin + Send + 'static,
+        Out::Error: Send,
+        H: CommandHandler + 'static,
+    {
+        let (client, fut) = ClientChannel::new_message_channel(stream, sink, handler);
+        tokio::spawn(fut);
+        client
     }
 
     pub async fn send_command(
@@ -210,20 +265,17 @@ struct Broker {
     incoming_streams: HashMap<Id, mpsc::Sender<serde_json::Value>>,
     outgoing_streams: HashMap<Id, StreamState>,
     handler: Box<dyn CommandHandler>,
-    spawner: Box<dyn Spawn + Send>,
     next_id: u32,
 }
 
 impl Broker {
-    pub fn new<H: CommandHandler + 'static, S: Spawn + Send + 'static>(
+    pub fn new<H: CommandHandler + 'static>(
         handler: H,
-        spawner: S,
     ) -> Self {
         Broker {
             incoming_streams: HashMap::new(),
             outgoing_streams: HashMap::new(),
             handler: Box::new(handler),
-            spawner: Box::new(spawner),
             next_id: 1,
         }
     }
@@ -302,19 +354,18 @@ impl Broker {
                         }
                     };
 
-                    self.spawner.spawn(cmd_future).unwrap();
+                    tokio::spawn(cmd_future);
 
                     self.outgoing_streams
                         .insert(cmd.id.clone(), StreamState { cancel_handle });
 
                     // Spawn the future that wraps server outputs, and follows it with an
                     // endstream message
-                    self.spawner
-                        .spawn(
-                            stream_sender_loop(cmd.id.clone(), client_recv, send.clone())
-                                .map(|_| ()),
-                        )
-                        .expect("The executor must be running for us to get here");
+                    tokio::spawn(stream_sender_loop(
+                        cmd.id.clone(),
+                        client_recv,
+                        send.clone(),
+                    ));
                 }
             }
             Message::Cancel(cancel) => match self.outgoing_streams.remove(&cancel.id) {
@@ -380,20 +431,6 @@ impl Broker {
     }
 }
 
-async fn join_channel_ends<T, In>(mut recv: In, mut send: mpsc::Sender<T>)
-where
-    In: Stream<Item = T> + Unpin,
-{
-    while let Some(v) = recv.next().await {
-        // The only error we can get from a Sender is that the stream was disconnected.
-        // By dropping the stream, we either cancel it, or propagate an error up the
-        // chain.
-        if let Err(_) = send.send(v).await {
-            return;
-        }
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
@@ -401,16 +438,6 @@ mod test {
 
     #[derive(Clone)]
     struct TokioSpawner;
-
-    impl Spawn for TokioSpawner {
-        fn spawn_obj(
-            &self,
-            f: futures::future::FutureObj<'static, ()>,
-        ) -> Result<(), futures::task::SpawnError> {
-            tokio::spawn(f);
-            Ok(())
-        }
-    }
 
     struct EchoHandler;
 
@@ -467,7 +494,7 @@ mod test {
         let (out_sink, receiver) = mpsc::channel(10);
 
         let client_channel =
-            ClientChannel::start_channel(in_stream, out_sink, TokioSpawner, handler);
+            ClientChannel::start_message_channel(in_stream, out_sink, handler);
 
         (client_channel, sender, receiver)
     }
@@ -481,9 +508,9 @@ mod test {
         let (out_sink, receiver) = mpsc::channel(10);
 
         let client_channel_1 =
-            ClientChannel::start_channel(in_stream, out_sink, TokioSpawner, handler1);
+            ClientChannel::start_message_channel(in_stream, out_sink, handler1);
         let client_channel_2 =
-            ClientChannel::start_channel(receiver, sender, TokioSpawner, handler2);
+            ClientChannel::start_message_channel(receiver, sender, handler2);
 
         (client_channel_1, client_channel_2)
     }
