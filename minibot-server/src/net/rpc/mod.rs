@@ -42,17 +42,17 @@
 //! TODO: What about needing to terminate and rejoin a session, to switch servers for example? Is
 //! there a way to recreate a stream setting, or should that be part of the layer above this one?
 
+mod broker;
+mod msg;
+
 use futures::channel::mpsc;
 use futures::future::BoxFuture;
 use futures::prelude::*;
+use msg::Message;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::pin::Pin;
 
-use crate::util::future::{
-    cancel::{cancel_pair, CancelHandle, CancelToken},
-    deser_json_pipe, pipe, ser_json_pipe,
-};
+use crate::util::future::{cancel::CancelToken, deser_json_pipe, pipe, ser_json_pipe};
 
 #[derive(thiserror::Error, Debug)]
 pub enum CommandError {
@@ -81,56 +81,8 @@ pub trait CommandHandler: Send {
 #[serde(transparent)]
 pub struct Id(std::num::NonZeroU32);
 
-#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
-pub struct CommandMessage {
-    id: Id,
-    method: String,
-    payload: serde_json::Value,
-}
-
-#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
-pub struct CancelMessage {
-    id: Id,
-}
-
-#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
-pub struct ResponseMessage {
-    id: Id,
-    payload: serde_json::Value,
-}
-
-#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
-pub struct EndMessage {
-    id: Id,
-}
-
-#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
-pub struct ErrorMessage {
-    error: String,
-    id: Option<Id>,
-}
-
-#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
-#[serde(tag = "type")]
-pub enum Message {
-    #[serde(rename = "cmd")]
-    Command(CommandMessage),
-    #[serde(rename = "cancel")]
-    Cancel(CancelMessage),
-    #[serde(rename = "resp")]
-    Response(ResponseMessage),
-    #[serde(rename = "end")]
-    End(EndMessage),
-    #[serde(rename = "error")]
-    Error(ErrorMessage),
-}
-
-struct StreamState {
-    cancel_handle: CancelHandle,
-}
-
 pub struct ClientChannel {
-    event_send: mpsc::Sender<Event>,
+    event_send: mpsc::Sender<broker::Event>,
 }
 
 impl ClientChannel {
@@ -186,9 +138,9 @@ impl ClientChannel {
             async move {
                 let (_, _, _) = futures::join!(
                     pipe(recv, sink),
-                    pipe(stream.map(Event::Message), event_send.clone(),),
+                    pipe(stream.map(broker::Event::new_message), event_send.clone()),
                     async move {
-                        let mut broker = Broker::new(handler);
+                        let mut broker = broker::Broker::new(handler);
                         broker.start(event_recv, send).await
                     }
                 );
@@ -201,11 +153,7 @@ impl ClientChannel {
         (ClientChannel { event_send }, fut)
     }
 
-    pub fn start_message_channel<In, Out, H>(
-        stream: In,
-        sink: Out,
-        handler: H,
-    ) -> Self
+    pub fn start_message_channel<In, Out, H>(stream: In, sink: Out, handler: H) -> Self
     where
         In: Stream<Item = Message> + Unpin + Send + 'static,
         Out: Sink<Message> + Unpin + Send + 'static,
@@ -217,217 +165,22 @@ impl ClientChannel {
         client
     }
 
+    /// Sends a command to the remote end of the connection.
     pub async fn send_command(
         &mut self,
         method: &str,
         payload: serde_json::Value,
         sink: mpsc::Sender<serde_json::Value>,
     ) -> anyhow::Result<()> {
-        let cmd_event = Event::StartCommand(StartCommandEvent {
-            method: method.to_string(),
-            payload,
-            sink,
-        });
-
-        self.event_send.send(cmd_event).await?;
-
-        Ok(())
-    }
-}
-
-async fn stream_sender_loop(
-    id: Id,
-    mut client_recv: mpsc::Receiver<serde_json::Value>,
-    mut send: mpsc::Sender<Message>,
-) -> Result<(), mpsc::SendError> {
-    while let Some(msg) = client_recv.next().await {
-        send.send(Message::Response(ResponseMessage { id, payload: msg }))
+        self.event_send
+            .send(broker::Event::new_command(
+                method.to_string(),
+                payload,
+                sink,
+            ))
             .await?;
-    }
-
-    send.send(Message::End(EndMessage { id })).await?;
-
-    Ok(())
-}
-
-struct StartCommandEvent {
-    method: String,
-    payload: serde_json::Value,
-    sink: mpsc::Sender<serde_json::Value>,
-}
-
-enum Event {
-    StartCommand(StartCommandEvent),
-    Message(Message),
-}
-
-struct Broker {
-    incoming_streams: HashMap<Id, mpsc::Sender<serde_json::Value>>,
-    outgoing_streams: HashMap<Id, StreamState>,
-    handler: Box<dyn CommandHandler>,
-    next_id: u32,
-}
-
-impl Broker {
-    pub fn new<H: CommandHandler + 'static>(
-        handler: H,
-    ) -> Self {
-        Broker {
-            incoming_streams: HashMap::new(),
-            outgoing_streams: HashMap::new(),
-            handler: Box::new(handler),
-            next_id: 1,
-        }
-    }
-
-    pub async fn start(
-        &mut self,
-        mut stream: mpsc::Receiver<Event>,
-        mut send: mpsc::Sender<Message>,
-    ) {
-        while let Some(event) = stream.next().await {
-            let result = match event {
-                Event::StartCommand(cmd) => self.handle_start_command(cmd, &mut send).await,
-                Event::Message(msg) => self.handle_message(msg, &mut send).await,
-            };
-
-            if let Err(e) = result {
-                // Cancellation propagated by dropping stream
-                log::error!("Broker stream error: {}", e);
-                return;
-            }
-        }
-    }
-
-    async fn handle_start_command(
-        &mut self,
-        start_command: StartCommandEvent,
-        client_send: &mut mpsc::Sender<Message>,
-    ) -> anyhow::Result<()> {
-        let new_id = self.take_new_id();
-        let cmd_message = CommandMessage {
-            id: new_id.clone(),
-            method: start_command.method,
-            payload: start_command.payload,
-        };
-
-        client_send.send(Message::Command(cmd_message)).await?;
-
-        self.incoming_streams.insert(new_id, start_command.sink);
 
         Ok(())
-    }
-
-    async fn handle_message(
-        &mut self,
-        msg: Message,
-        send: &mut mpsc::Sender<Message>,
-    ) -> anyhow::Result<()> {
-        match msg {
-            Message::Command(cmd) => {
-                if self.outgoing_streams.contains_key(&cmd.id) {
-                    send.send(Message::Error(ErrorMessage {
-                        error: format!("Started an already running command with id {:?}", cmd.id),
-                        id: Some(cmd.id.clone()),
-                    }))
-                    .await
-                    .unwrap();
-                } else {
-                    let (server_send, client_recv) = mpsc::channel(10);
-                    let (cancel_handle, cancel_token) = cancel_pair();
-
-                    let cmd_future = match self.handler.start_command(
-                        &cmd.method,
-                        &cmd.payload,
-                        server_send,
-                        cancel_token,
-                    ) {
-                        Ok(cmd_future) => cmd_future,
-                        Err(e) => {
-                            send.send(Message::Error(ErrorMessage {
-                                error: format!("Error with command: {}", e),
-                                id: Some(cmd.id.clone()),
-                            }))
-                            .await
-                            .unwrap();
-                            return Err(e.into());
-                        }
-                    };
-
-                    tokio::spawn(cmd_future);
-
-                    self.outgoing_streams
-                        .insert(cmd.id.clone(), StreamState { cancel_handle });
-
-                    // Spawn the future that wraps server outputs, and follows it with an
-                    // endstream message
-                    tokio::spawn(stream_sender_loop(
-                        cmd.id.clone(),
-                        client_recv,
-                        send.clone(),
-                    ));
-                }
-            }
-            Message::Cancel(cancel) => match self.outgoing_streams.remove(&cancel.id) {
-                Some(_) => {}
-                None => {
-                    // Do nothing. It's possible that a cancel reaches the server after it has
-                    // sent a stream end, so this would have removed the entry. It's the sender's
-                    // responsibility not to reuse an ID until it has seen an end message.
-                }
-            },
-            Message::Response(stream_msg) => match self.incoming_streams.get_mut(&stream_msg.id) {
-                Some(sink) => {
-                    sink.send(stream_msg.payload).await.unwrap();
-                    // FIXME: An error here means that the client has closed. We should cancel
-                    // this id, and leave a placeholder to wait for a stream end message.
-                }
-
-                None => {
-                    send.send(Message::Error(ErrorMessage {
-                        id: Some(stream_msg.id.clone()),
-                        error: format!("Got a stream message to an unallocated id."),
-                    }))
-                    .await?;
-                    anyhow::bail!("Stream protocol error");
-                }
-            },
-            Message::End(end) => {
-                match self.incoming_streams.remove(&end.id) {
-                    Some(_) => {
-                        // Just let the value drop. It should cause the stream to terminate.
-                    }
-
-                    None => {
-                        send.send(Message::Error(ErrorMessage {
-                            id: Some(end.id.clone()),
-                            error: format!("Got a stream message to an unallocated id."),
-                        }))
-                        .await?;
-                        anyhow::bail!("Stream protocol error");
-                    }
-                }
-            }
-
-            Message::Error(err) => {
-                // This should terminate the connection.
-                anyhow::bail!(
-                    "Stream error from peer: id: {:?}, error: {}",
-                    err.id,
-                    err.error
-                );
-            }
-        }
-
-        Ok(())
-    }
-
-    fn take_new_id(&mut self) -> Id {
-        let new_id = self.next_id;
-        if self.next_id == u32::max_value() {
-            self.next_id = 1
-        }
-        Id(std::num::NonZeroU32::new(new_id).unwrap())
     }
 }
 
@@ -493,8 +246,7 @@ mod test {
         let (sender, in_stream) = mpsc::channel(10);
         let (out_sink, receiver) = mpsc::channel(10);
 
-        let client_channel =
-            ClientChannel::start_message_channel(in_stream, out_sink, handler);
+        let client_channel = ClientChannel::start_message_channel(in_stream, out_sink, handler);
 
         (client_channel, sender, receiver)
     }
@@ -507,10 +259,8 @@ mod test {
         let (sender, in_stream) = mpsc::channel(10);
         let (out_sink, receiver) = mpsc::channel(10);
 
-        let client_channel_1 =
-            ClientChannel::start_message_channel(in_stream, out_sink, handler1);
-        let client_channel_2 =
-            ClientChannel::start_message_channel(receiver, sender, handler2);
+        let client_channel_1 = ClientChannel::start_message_channel(in_stream, out_sink, handler1);
+        let client_channel_2 = ClientChannel::start_message_channel(receiver, sender, handler2);
 
         (client_channel_1, client_channel_2)
     }
@@ -524,7 +274,7 @@ mod test {
                 "field2": "Hello, World!\n",
             }
         );
-        send.send(Message::Command(CommandMessage {
+        send.send(Message::Command(msg::CommandMessage {
             id: Id(std::num::NonZeroU32::new(1).unwrap()),
             method: "echo".to_string(),
             payload: payload_value.clone(),
@@ -534,14 +284,14 @@ mod test {
 
         assert_eq!(
             recv.next().await.unwrap(),
-            Message::Response(ResponseMessage {
+            Message::Response(msg::ResponseMessage {
                 id: Id(std::num::NonZeroU32::new(1).unwrap()),
                 payload: payload_value,
             })
         );
         assert_eq!(
             recv.next().await.unwrap(),
-            Message::End(EndMessage {
+            Message::End(msg::EndMessage {
                 id: Id(std::num::NonZeroU32::new(1).unwrap()),
             })
         );
