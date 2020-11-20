@@ -200,14 +200,14 @@ mod test {
             method: &str,
             payload: &serde_json::Value,
             mut output: mpsc::Sender<serde_json::Value>,
-            mut cancel: CancelToken,
+            cancel: CancelToken,
         ) -> Result<Pin<Box<dyn Future<Output = ()> + Send + 'static>>, CommandError> {
             match method {
                 "echo" => {
                     let payload = payload.clone();
                     Ok(async move {
                         cancel
-                            .with_cancelled_default(Ok(()), output.send(payload))
+                            .with_canceled_or_else(Ok(()), output.send(payload))
                             .await
                             .unwrap();
                     }

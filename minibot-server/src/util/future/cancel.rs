@@ -1,52 +1,99 @@
 use futures::channel::oneshot::{channel, Receiver, Sender};
-use futures::future::Fuse;
 use futures::prelude::*;
-use std::convert::Infallible;
 
 /// A cancel handle indicates cancellation by simply being dropped.
-pub struct CancelHandle(Sender<Infallible>);
+///
+/// Calling `ignore()` on it instead will treat it as if it is never dropped.
+pub struct CancelHandle(Sender<()>);
 
-pub struct CancelToken(Receiver<Infallible>);
+impl CancelHandle {
+    /// Cancel the handle, indicating cancellation on the token.
+    ///
+    /// This method is not necessary to be called, being equivalent to std::mem::drop(handle).
+    pub fn cancel(self) {
+        // No body: let self be dropped.
+    }
 
+    /// Ignore the handle, effectively dropping it without canceling the token.
+    pub fn ignore(self) {
+        // An error indicates that the token was dropped, which is not a real error.
+        let _ = self.0.send(());
+    }
+}
+
+enum TokenState {
+    Pending(Receiver<()>),
+    Canceled,
+    Ignored,
+}
+
+/// A future that will resolve if canceled by the equivalent CancelHandle.
+pub struct CancelToken(TokenState);
+
+impl Future for CancelToken {
+    type Output = ();
+
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<()> {
+        match &mut self.0 {
+            TokenState::Pending(recv) => match futures::ready!(recv.poll_unpin(cx)) {
+                Ok(()) => {
+                    self.0 = TokenState::Ignored;
+                    std::task::Poll::Pending
+                }
+                Err(_) => {
+                    self.0 = TokenState::Canceled;
+                    std::task::Poll::Ready(())
+                }
+            },
+            TokenState::Ignored => std::task::Poll::Pending,
+            TokenState::Canceled => std::task::Poll::Ready(()),
+        }
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+#[error("The future was canceled")]
 pub struct Canceled;
 
 impl CancelToken {
-    pub fn is_cancelled(&mut self) -> bool {
-        match self.0.try_recv() {
-            Ok(Some(_)) => unreachable!("due to infallible"),
-            Ok(None) => false,
-            Err(_) => true,
-        }
-    }
-
-    pub fn on_canceled<'a>(&'a mut self) -> Fuse<Box<dyn Future<Output = ()> + Send + Unpin + 'a>> {
-        let fut_box: Box<dyn Future<Output = ()> + Send + Unpin + 'a> =
-            Box::new((&mut self.0).map(|_| ()));
-        fut_box.fuse()
-    }
-
-    pub async fn with_cancelled<F>(&mut self, future: F) -> Result<F::Output, Canceled>
+    pub async fn with_canceled<F>(self, fut: F) -> Result<F::Output, Canceled>
     where
-        F: Future,
+        F: Future + Unpin,
     {
+        let mut token = self;
         futures::select! {
-            out = future.fuse() => Ok(out),
-            _ = self.on_canceled() => Err(Canceled),
+            out = fut.fuse() => Ok(out),
+            _ = token => Err(Canceled),
         }
     }
-
-    pub async fn with_cancelled_default<F>(&mut self, default: F::Output, future: F) -> F::Output
+    
+    pub async fn with_canceled_or_else<F>(self, default: F::Output, fut: F) -> F::Output
     where
-        F: Future,
+        F: Future + Unpin,
     {
-        match self.with_cancelled(future).await {
-            Ok(out) => out,
-            Err(Canceled) => default,
+        let mut token = self;
+        futures::select! {
+            out = fut.fuse() => out,
+            _ = token => default,
         }
+    }
+}
+
+impl futures::future::FusedFuture for CancelToken {
+    fn is_terminated(&self) -> bool {
+        matches!(self.0, TokenState::Canceled)
     }
 }
 
 pub fn cancel_pair() -> (CancelHandle, CancelToken) {
     let (send, recv) = channel();
-    (CancelHandle(send), CancelToken(recv))
+    (CancelHandle(send), CancelToken(TokenState::Pending(recv)))
+}
+
+/// Returns a CancelToken which will never be canceled.
+pub fn ignored_token() -> CancelToken {
+    CancelToken(TokenState::Ignored)
 }
