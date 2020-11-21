@@ -130,7 +130,7 @@ impl ClientChannel {
         // mpsc channel for output
         let (send, recv) = mpsc::channel(0);
 
-        let (event_send, event_recv) = mpsc::channel(10);
+        let (event_send, event_recv) = mpsc::channel(0);
 
         tokio::spawn({
             let event_send = event_send.clone();
@@ -228,8 +228,8 @@ mod test {
     where
         H: CommandHandler + Send + 'static,
     {
-        let (sender, in_stream) = mpsc::channel(10);
-        let (out_sink, receiver) = mpsc::channel(10);
+        let (sender, in_stream) = mpsc::channel(0);
+        let (out_sink, receiver) = mpsc::channel(0);
 
         let client_channel = ClientChannel::new_message_channel(in_stream, out_sink, handler);
 
@@ -241,8 +241,8 @@ mod test {
         H1: CommandHandler + Send + 'static,
         H2: CommandHandler + Send + 'static,
     {
-        let (sender, in_stream) = mpsc::channel(10);
-        let (out_sink, receiver) = mpsc::channel(10);
+        let (sender, in_stream) = mpsc::channel(0);
+        let (out_sink, receiver) = mpsc::channel(0);
 
         let client_channel_1 = ClientChannel::new_message_channel(in_stream, out_sink, handler1);
         let client_channel_2 = ClientChannel::new_message_channel(receiver, sender, handler2);
