@@ -17,6 +17,7 @@ struct StartCommandEvent {
 
 enum Contents {
     StartCommand(StartCommandEvent),
+    Terminate,
     Message(Message),
 }
 
@@ -34,10 +35,12 @@ impl Event {
             sink,
         }))
     }
-    pub fn new_message(
-        message: Message,
-    ) -> Event {
+    pub fn new_message(message: Message) -> Event {
         Event(Contents::Message(message))
+    }
+
+    pub fn new_terminate() -> Event {
+        Event(Contents::Terminate)
     }
 }
 
@@ -86,6 +89,7 @@ impl Broker {
             let result = match contents {
                 Contents::StartCommand(cmd) => self.handle_start_command(cmd, &mut send).await,
                 Contents::Message(msg) => self.handle_message(msg, &mut send).await,
+                Contents::Terminate => todo!(),
             };
 
             if let Err(e) = result {
@@ -133,25 +137,20 @@ impl Broker {
                     let (server_send, client_recv) = mpsc::channel(10);
                     let (cancel_handle, cancel_token) = cancel_pair();
 
-                    let cmd_future = match self.handler.start_command(
+                    if let Err(e) = self.handler.start_command(
                         &cmd.method,
                         &cmd.payload,
                         server_send,
                         cancel_token,
                     ) {
-                        Ok(cmd_future) => cmd_future,
-                        Err(e) => {
-                            send.send(Message::Error(msg::ErrorMessage {
-                                error: format!("Error with command: {}", e),
-                                id: Some(cmd.id.clone()),
-                            }))
-                            .await
-                            .unwrap();
-                            return Err(e.into());
-                        }
+                        send.send(Message::Error(msg::ErrorMessage {
+                            error: format!("Error with command: {}", e),
+                            id: Some(cmd.id.clone()),
+                        }))
+                        .await
+                        .unwrap();
+                        return Err(e.into());
                     };
-
-                    tokio::spawn(cmd_future);
 
                     self.outgoing_streams
                         .insert(cmd.id.clone(), StreamState { cancel_handle });

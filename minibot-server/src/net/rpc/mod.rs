@@ -46,18 +46,16 @@ mod broker;
 mod msg;
 
 use futures::channel::mpsc;
-use futures::future::BoxFuture;
 use futures::prelude::*;
 use msg::Message;
 use serde::{Deserialize, Serialize};
-use std::pin::Pin;
 
 use crate::util::future::{cancel::CancelToken, deser_json_pipe, pipe, ser_json_pipe};
 
 #[derive(thiserror::Error, Debug)]
 pub enum CommandError {
-    #[error("Received unknown method: {0:?}")]
-    BadMethod(String),
+    #[error("Unknown method")]
+    UnknownMethod,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -74,7 +72,7 @@ pub trait CommandHandler: Send {
         payload: &serde_json::Value,
         output: mpsc::Sender<serde_json::Value>,
         cancel: CancelToken,
-    ) -> Result<Pin<Box<dyn Future<Output = ()> + Send + 'static>>, CommandError>;
+    ) -> Result<(), CommandError>;
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
@@ -85,12 +83,21 @@ pub struct ClientChannel {
     event_send: mpsc::Sender<broker::Event>,
 }
 
+impl Drop for ClientChannel {
+    fn drop(&mut self) {
+        let mut event_send = self.event_send.clone();
+        tokio::spawn(async move {
+            let _ = event_send.send(broker::Event::new_terminate()).await;
+        });
+    }
+}
+
 impl ClientChannel {
     pub fn new_channel<In, Out, H>(
         input_string_end: In,
         output_string_start: Out,
         handler: H,
-    ) -> (Self, BoxFuture<'static, ()>)
+    ) -> Self
     where
         In: Stream + Unpin + Send + 'static,
         In::Item: std::borrow::Borrow<str> + Send,
@@ -101,27 +108,19 @@ impl ClientChannel {
         let (input_msg_start, input_msg_end) = mpsc::channel(0);
         let (output_msg_start, output_msg_end) = mpsc::channel(0);
 
-        let (client, fut) =
-            ClientChannel::new_message_channel(input_msg_end, output_msg_start, handler);
+        let client = ClientChannel::new_message_channel(input_msg_end, output_msg_start, handler);
 
-        (
-            client,
-            async move {
-                let _ = futures::join!(
-                    fut,
-                    deser_json_pipe(input_string_end, input_msg_start),
-                    ser_json_pipe(output_msg_end, output_string_start),
-                );
-            }
-            .boxed(),
-        )
+        tokio::spawn(async move {
+            let _ = futures::join!(
+                deser_json_pipe(input_string_end, input_msg_start),
+                ser_json_pipe(output_msg_end, output_string_start),
+            );
+        });
+
+        client
     }
 
-    pub fn new_message_channel<In, Out, H>(
-        stream: In,
-        sink: Out,
-        handler: H,
-    ) -> (Self, BoxFuture<'static, Result<(), ChannelError>>)
+    pub fn new_message_channel<In, Out, H>(stream: In, sink: Out, handler: H) -> Self
     where
         In: Stream<Item = Message> + Unpin + Send + 'static,
         Out: Sink<Message> + Unpin + Send + 'static,
@@ -133,7 +132,7 @@ impl ClientChannel {
 
         let (event_send, event_recv) = mpsc::channel(10);
 
-        let fut = {
+        tokio::spawn({
             let event_send = event_send.clone();
             async move {
                 let (_, _, _) = futures::join!(
@@ -144,25 +143,10 @@ impl ClientChannel {
                         broker.start(event_recv, send).await
                     }
                 );
-
-                Ok(())
             }
-            .boxed()
-        };
+        });
 
-        (ClientChannel { event_send }, fut)
-    }
-
-    pub fn start_message_channel<In, Out, H>(stream: In, sink: Out, handler: H) -> Self
-    where
-        In: Stream<Item = Message> + Unpin + Send + 'static,
-        Out: Sink<Message> + Unpin + Send + 'static,
-        Out::Error: Send,
-        H: CommandHandler + 'static,
-    {
-        let (client, fut) = ClientChannel::new_message_channel(stream, sink, handler);
-        tokio::spawn(fut);
-        client
+        ClientChannel { event_send }
     }
 
     /// Sends a command to the remote end of the connection.
@@ -201,20 +185,21 @@ mod test {
             payload: &serde_json::Value,
             mut output: mpsc::Sender<serde_json::Value>,
             cancel: CancelToken,
-        ) -> Result<Pin<Box<dyn Future<Output = ()> + Send + 'static>>, CommandError> {
+        ) -> Result<(), CommandError> {
             match method {
                 "echo" => {
                     let payload = payload.clone();
-                    Ok(async move {
+                    tokio::spawn(async move {
                         cancel
                             .with_canceled_or_else(Ok(()), output.send(payload))
                             .await
                             .unwrap();
-                    }
-                    .boxed())
+                    });
+
+                    Ok(())
                 }
 
-                _ => Err(CommandError::BadMethod(method.to_string())),
+                _ => Err(CommandError::UnknownMethod),
             }
         }
     }
@@ -224,12 +209,12 @@ mod test {
     impl CommandHandler for NullHandler {
         fn start_command(
             &mut self,
-            method: &str,
+            _method: &str,
             _payload: &serde_json::Value,
             _output: mpsc::Sender<serde_json::Value>,
             _cancel: CancelToken,
-        ) -> Result<Pin<Box<dyn Future<Output = ()> + Send + 'static>>, CommandError> {
-            Err(CommandError::BadMethod(method.to_string()))
+        ) -> Result<(), CommandError> {
+            Err(CommandError::UnknownMethod)
         }
     }
 
@@ -246,7 +231,7 @@ mod test {
         let (sender, in_stream) = mpsc::channel(10);
         let (out_sink, receiver) = mpsc::channel(10);
 
-        let client_channel = ClientChannel::start_message_channel(in_stream, out_sink, handler);
+        let client_channel = ClientChannel::new_message_channel(in_stream, out_sink, handler);
 
         (client_channel, sender, receiver)
     }
@@ -259,8 +244,8 @@ mod test {
         let (sender, in_stream) = mpsc::channel(10);
         let (out_sink, receiver) = mpsc::channel(10);
 
-        let client_channel_1 = ClientChannel::start_message_channel(in_stream, out_sink, handler1);
-        let client_channel_2 = ClientChannel::start_message_channel(receiver, sender, handler2);
+        let client_channel_1 = ClientChannel::new_message_channel(in_stream, out_sink, handler1);
+        let client_channel_2 = ClientChannel::new_message_channel(receiver, sender, handler2);
 
         (client_channel_1, client_channel_2)
     }

@@ -1,5 +1,3 @@
-use std::pin::Pin;
-
 use futures::{channel::mpsc, prelude::*};
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
@@ -18,7 +16,7 @@ impl CommandHandler for ChannelHandler {
         _payload: &serde_json::Value,
         _output: mpsc::Sender<serde_json::Value>,
         _cancel: CancelToken,
-    ) -> Result<Pin<Box<dyn Future<Output = ()> + Send + 'static>>, CommandError> {
+    ) -> Result<(), CommandError> {
         todo!()
     }
 }
@@ -68,12 +66,11 @@ impl ChannelAcceptor {
 
         let input_ws_msg_end = input_ws_msg_end.filter_map(filter_fn).boxed();
 
-        let (client, fut) =
+        let client =
             ClientChannel::new_channel(input_str_end, output_str_start, ChannelHandler { user_id });
 
         tokio::spawn(async move {
-            let (_, _, _, _) = futures::join!(
-                fut,
+            let (_, _, _) = futures::join!(
                 pipe(split_output_ws_msg_end, output_ws_msg_start),
                 try_stream_pipe(input_ws_msg_end, input_str_start),
                 pipe(
