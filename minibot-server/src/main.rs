@@ -8,6 +8,7 @@ mod services;
 mod util;
 
 use config::oauth;
+use serde::Deserialize;
 use services::{fake::token_store, live::twitch_token};
 
 use futures::prelude::*;
@@ -23,16 +24,22 @@ fn args() -> clap::App<'static, 'static> {
     )
 }
 
+#[derive(Deserialize, Debug)]
+struct EnvParams {
+    server_addr: String,
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     env_logger::init();
+    dotenv::dotenv()?;
     let matches = args().get_matches();
 
     if let Some(dotenv_path) = matches.value_of_os("dotenv") {
         dotenv::from_path(dotenv_path)?;
     }
 
-    dotenv::from_path(dirs::home_dir().unwrap().join(".config/minibot-server/config.env"))?;
+    let env_params = envy::prefixed("MINIBOT_").from_env::<EnvParams>()?;
 
     let twitch_client = envy::prefixed("MINIBOT_").from_env::<oauth::ClientInfo>()?;
 
@@ -40,7 +47,7 @@ async fn main() -> anyhow::Result<()> {
 
     let twitch_token_service = twitch_token::TwitchTokenHandle::new(twitch_config.clone());
 
-    let (send, mut recv) = futures::channel::mpsc::channel(10);
+    let (send, mut recv) = futures::channel::mpsc::channel(0);
 
     let router = http_server::authn::router(
         twitch_config.clone(),
@@ -49,11 +56,9 @@ async fn main() -> anyhow::Result<()> {
         Box::new(send),
     );
 
-    println!("Twitch config: {:#?}", twitch_config);
-
     tokio::spawn(async move { while let Some(_) = recv.next().await {} });
 
-    let server = gotham::plain::init_server(("127.0.0.1", 5001), router);
+    let server = gotham::plain::init_server(env_params.server_addr.clone(), router);
     tokio::select! {
         _ = server => (),
         _ = tokio::signal::ctrl_c() => (),
