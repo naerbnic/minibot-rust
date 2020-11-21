@@ -69,7 +69,7 @@ impl CancelToken {
             _ = token => Err(Canceled),
         }
     }
-    
+
     pub async fn with_canceled_or_else<F>(self, default: F::Output, fut: F) -> F::Output
     where
         F: Future + Unpin,
@@ -78,6 +78,20 @@ impl CancelToken {
         futures::select! {
             out = fut.fuse() => out,
             _ = token => default,
+        }
+    }
+
+    /// Runs the given function when this token is canceled. The future will complete
+    /// without calling the function if the handle is ignored. Spawning this future
+    /// will not leak a task.
+    pub async fn on_canceled<F>(mut self, func: F) where F: FnOnce() {
+        match std::mem::replace(&mut self.0, TokenState::Ignored) {
+            TokenState::Pending(recv) => match recv.await {
+                Ok(()) => {},
+                Err(_) => func(),
+            }
+            TokenState::Canceled => func(),
+            TokenState::Ignored => {},
         }
     }
 }
