@@ -50,7 +50,7 @@ use futures::prelude::*;
 use msg::Message;
 use serde::{Deserialize, Serialize};
 
-use crate::util::future::{cancel::CancelToken, deser_json_pipe, pipe, ser_json_pipe};
+use crate::future::{cancel::CancelToken, deser_json_pipe, pipe, ser_json_pipe};
 
 #[derive(thiserror::Error, Debug)]
 pub enum CommandError {

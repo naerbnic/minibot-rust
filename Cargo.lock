@@ -1326,11 +1326,16 @@ dependencies = [
 name = "minibot-common"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "base64 0.11.0",
+ "futures",
+ "log",
  "rand 0.7.3",
  "serde",
+ "serde_json",
  "sodiumoxide",
  "thiserror",
+ "tokio",
 ]
 
 [[package]]

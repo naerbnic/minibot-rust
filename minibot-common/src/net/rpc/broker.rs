@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use futures::channel::mpsc;
 use futures::prelude::*;
 
-use crate::util::future::cancel::{cancel_pair, CancelHandle};
+use crate::future::cancel::{cancel_pair, CancelHandle};
 
 use super::msg::{self, Message};
 use super::CommandHandler;
@@ -45,6 +45,7 @@ impl Event {
 }
 
 struct StreamState {
+    #[allow(dead_code)]
     cancel_handle: CancelHandle,
 }
 

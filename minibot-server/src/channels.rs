@@ -2,9 +2,10 @@ use futures::{channel::mpsc, prelude::*};
 use serde::{Deserialize, Serialize};
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
-use crate::net::rpc::{ClientChannel, CommandError, CommandHandler};
-use crate::util::future::pipe;
-use crate::util::future::{cancel::CancelToken, try_stream_pipe};
+use minibot_common::{
+    future::{cancel::CancelToken, pipe, try_stream_pipe},
+    net::rpc::{ClientChannel, CommandError, CommandHandler},
+};
 
 struct ChannelHandler {
     user_id: u64,
