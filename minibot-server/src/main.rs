@@ -15,10 +15,6 @@ use futures::prelude::*;
 #[tokio::main]
 async fn main() {
     env_logger::init();
-    // Match any request and return hello world!
-    // let routes = warp::any().map(|| "Hello, World!");
-
-    // warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
     let ds = devsecrets::DevSecrets::from_id(&devsecrets::import_id!()).unwrap();
 
     let twitch_client = ds

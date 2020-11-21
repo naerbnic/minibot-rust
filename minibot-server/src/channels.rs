@@ -1,4 +1,5 @@
 use futures::{channel::mpsc, prelude::*};
+use serde::{Deserialize, Serialize};
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 use crate::net::rpc::{ClientChannel, CommandError, CommandHandler};
@@ -9,15 +10,34 @@ struct ChannelHandler {
     user_id: u64,
 }
 
+#[derive(Serialize, Deserialize)]
+struct UserIdResponse {
+    user_id: u64,
+}
+
 impl CommandHandler for ChannelHandler {
     fn start_command(
         &mut self,
-        _method: &str,
+        method: &str,
         _payload: &serde_json::Value,
-        _output: mpsc::Sender<serde_json::Value>,
+        mut output: mpsc::Sender<serde_json::Value>,
         _cancel: CancelToken,
     ) -> Result<(), CommandError> {
-        todo!()
+        match method {
+            "user_id" => {
+                let user_id = self.user_id;
+                tokio::spawn(async move {
+                    output
+                        .send(serde_json::to_value(UserIdResponse { user_id }).unwrap())
+                        .await
+                        .unwrap();
+                });
+
+                Ok(())
+            }
+
+            _ => Err(CommandError::UnknownMethod),
+        }
     }
 }
 
