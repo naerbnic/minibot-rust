@@ -1,6 +1,10 @@
 mod access_token;
 
 use minibot_common::secure::SecureString;
+use tokio_tungstenite::{
+    connect_async, WebSocketStream,
+    tungstenite::{self, client::IntoClientRequest, http},
+};
 use url::Url;
 
 pub use access_token::get_access_token as run_client;
@@ -17,6 +21,15 @@ pub enum AuthnError {
     OpenBrowserError(Box<dyn std::error::Error + Send + Sync>),
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum ConnectError {
+    #[error(transparent)]
+    Tungstenite(#[from] tungstenite::Error),
+
+    #[error(transparent)]
+    OpenBrowserError(Box<dyn std::error::Error + Send + Sync>),
+}
+
 /// Info for connecting to a minibot server.
 #[derive(Clone, Debug)]
 pub struct Server {
@@ -28,7 +41,7 @@ pub struct Server {
 impl Server {
     pub fn new(server_addr: &str) -> Self {
         let server_addr = url::Url::parse(&server_addr).unwrap();
-        
+
         Server {
             auth_url: server_addr.join("login").unwrap(),
             exchange_url: server_addr.join("confirm").unwrap(),
@@ -57,10 +70,23 @@ impl Server {
         Ok(ClientAuthn(token.into()))
     }
 
-    pub async fn connect(&self, authn: &ClientAuthn) {
+    pub async fn connect(&self, authn: &ClientAuthn) -> Result<Connection, ConnectError> {
+        let mut request = (&self.ws_url).into_client_request().unwrap();
+        // Add authn header
+        request.headers_mut().append(
+            http::header::AUTHORIZATION,
+            format!("MinibotAuthn {}", &*authn.0).parse().unwrap(),
+        );
 
+        let (stream, _) = connect_async(request).await?;
+
+        Ok(Connection { stream })
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct ClientAuthn(SecureString);
+
+pub struct Connection {
+    stream: WebSocketStream<tokio::net::TcpStream>,
+}

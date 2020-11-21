@@ -157,7 +157,7 @@ checksum = "374bba43fc924d90393ee7768e6f75d223a98307a488fe5bc34b66c3e96932a6"
 dependencies = [
  "async-trait",
  "futures",
- "tokio 0.2.23",
+ "tokio",
 ]
 
 [[package]]
@@ -169,7 +169,7 @@ dependencies = [
  "async-trait",
  "bb8",
  "futures",
- "tokio 0.2.23",
+ "tokio",
  "tokio-postgres",
 ]
 
@@ -899,7 +899,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_derive",
- "tokio 0.2.23",
+ "tokio",
  "tokio-rustls",
  "uuid",
 ]
@@ -928,7 +928,7 @@ dependencies = [
  "http",
  "indexmap",
  "slab",
- "tokio 0.2.23",
+ "tokio",
  "tokio-util",
  "tracing",
  "tracing-futures",
@@ -1044,7 +1044,7 @@ dependencies = [
  "itoa",
  "pin-project 1.0.2",
  "socket2",
- "tokio 0.2.23",
+ "tokio",
  "tower-service",
  "tracing",
  "want",
@@ -1059,7 +1059,7 @@ dependencies = [
  "bytes 0.5.6",
  "hyper",
  "native-tls",
- "tokio 0.2.23",
+ "tokio",
  "tokio-tls",
 ]
 
@@ -1303,8 +1303,8 @@ dependencies = [
  "serde",
  "serde_urlencoded 0.6.1",
  "thiserror",
- "tokio 0.2.23",
- "tokio-tungstenite 0.12.0",
+ "tokio",
+ "tokio-tungstenite",
  "url 2.2.0",
  "warp",
 ]
@@ -1317,7 +1317,7 @@ dependencies = [
  "clap",
  "minibot-client",
  "reqwest",
- "tokio 0.2.23",
+ "tokio",
  "url 2.2.0",
  "webbrowser",
 ]
@@ -1343,7 +1343,7 @@ dependencies = [
  "futures",
  "refinery",
  "thiserror",
- "tokio 0.2.23",
+ "tokio",
  "tokio-postgres",
 ]
 
@@ -1357,7 +1357,7 @@ dependencies = [
  "libsqlite3-sys",
  "r2d2",
  "thiserror",
- "tokio 0.2.23",
+ "tokio",
 ]
 
 [[package]]
@@ -1375,7 +1375,7 @@ dependencies = [
  "minibot-irc-raw",
  "native-tls",
  "thiserror",
- "tokio 0.2.23",
+ "tokio",
  "tokio-tls",
  "tokio-util",
 ]
@@ -1421,8 +1421,8 @@ dependencies = [
  "sha1",
  "sodiumoxide",
  "thiserror",
- "tokio 0.2.23",
- "tokio-tungstenite 0.11.0",
+ "tokio",
+ "tokio-tungstenite",
  "url 2.2.0",
  "url_serde",
 ]
@@ -2091,7 +2091,7 @@ dependencies = [
  "regex",
  "serde",
  "thiserror",
- "tokio 0.2.23",
+ "tokio",
  "tokio-postgres",
  "toml",
  "walkdir",
@@ -2151,7 +2151,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_urlencoded 0.7.0",
- "tokio 0.2.23",
+ "tokio",
  "tokio-tls",
  "url 2.2.0",
  "wasm-bindgen",
@@ -2743,21 +2743,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tokio"
-version = "0.3.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9dfe2523e6fa84ddf5e688151d4e5fddc51678de9752c6512a24714c23818d61"
-dependencies = [
- "autocfg 1.0.1",
- "bytes 0.6.0",
- "lazy_static",
- "libc",
- "memchr",
- "mio 0.7.6",
- "pin-project-lite 0.2.0",
-]
-
-[[package]]
 name = "tokio-macros"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2786,7 +2771,7 @@ dependencies = [
  "pin-project-lite 0.1.11",
  "postgres-protocol",
  "postgres-types",
- "tokio 0.2.23",
+ "tokio",
  "tokio-util",
 ]
 
@@ -2798,7 +2783,7 @@ checksum = "e12831b255bcfa39dc0436b01e19fea231a37db570686c06ee72c423479f889a"
 dependencies = [
  "futures-core",
  "rustls",
- "tokio 0.2.23",
+ "tokio",
  "webpki",
 ]
 
@@ -2809,7 +2794,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a70f4fcd7b3b24fb194f837560168208f669ca8cb70d0c4b862944452396343"
 dependencies = [
  "native-tls",
- "tokio 0.2.23",
+ "tokio",
 ]
 
 [[package]]
@@ -2821,20 +2806,7 @@ dependencies = [
  "futures-util",
  "log",
  "pin-project 0.4.27",
- "tokio 0.2.23",
- "tungstenite",
-]
-
-[[package]]
-name = "tokio-tungstenite"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0381c1e6e08908317cee104781ca48afe03f37cc857792b85f01f9828fb55ba3"
-dependencies = [
- "futures-util",
- "log",
- "pin-project 1.0.2",
- "tokio 0.3.4",
+ "tokio",
  "tungstenite",
 ]
 
@@ -2850,7 +2822,7 @@ dependencies = [
  "futures-sink",
  "log",
  "pin-project-lite 0.1.11",
- "tokio 0.2.23",
+ "tokio",
 ]
 
 [[package]]
@@ -3103,8 +3075,8 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_urlencoded 0.6.1",
- "tokio 0.2.23",
- "tokio-tungstenite 0.11.0",
+ "tokio",
+ "tokio-tungstenite",
  "tower-service",
  "tracing",
  "tracing-futures",
