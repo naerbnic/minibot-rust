@@ -1,5 +1,5 @@
 use clap::{App, Arg};
-use url::Url;
+use minibot_client::Server;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -9,28 +9,16 @@ async fn main() -> anyhow::Result<()> {
 
     println!("Matches: {:?}", matches);
 
-    let server_url = Url::parse(matches.value_of("SERVER").unwrap())?;
+    let server = Server::new(matches.value_of("SERVER").unwrap());
 
-    let mut auth_url = server_url.clone();
-    auth_url.set_path("/login");
-    let mut confirm_url = server_url.clone();
-    confirm_url.set_path("/confirm");
-    let confirm_url = confirm_url.to_string();
+    let client_authn = server
+        .authenticate(
+            std::time::Instant::now() + std::time::Duration::from_secs(300),
+            |url| webbrowser::open(url).map(|_| ()),
+        )
+        .await?;
 
-    let client = reqwest::Client::new();
-
-    let (url, future) = minibot_client::run_client(
-        &client,
-        std::time::Instant::now() + std::time::Duration::from_secs(300),
-        &auth_url.to_string(),
-        &confirm_url,
-    );
-
-    println!("Output: {:?}", webbrowser::open(&url.to_string())?);
-
-    let access_token = future.await?;
-
-    println!("Access token: {}", access_token);
+    println!("Client Authentication: {:?}", client_authn);
 
     Ok(())
 }
