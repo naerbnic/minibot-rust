@@ -31,6 +31,10 @@ tokio-tungstenite = "0.11.0"
 sha1 = "0.6.0"
 bytes = "0.6.0"
 mime = "0.3.16"
+clap = "2.33.3"
+dotenv = "0.15.0"
+envy = "0.4.1"
+dirs = "3.0.1"
 
 [dependencies.serde]
 features = ["derive"]

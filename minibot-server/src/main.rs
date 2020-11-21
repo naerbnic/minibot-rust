@@ -12,16 +12,29 @@ use services::{fake::token_store, live::twitch_token};
 
 use futures::prelude::*;
 
-#[tokio::main]
-async fn main() {
-    env_logger::init();
-    let ds = devsecrets::DevSecrets::from_id(&devsecrets::import_id!()).unwrap();
+fn args() -> clap::App<'static, 'static> {
+    use clap::{App, Arg};
+    App::new("minibot-server").arg(
+        Arg::with_name("dotenv")
+            .long("dotenv")
+            .value_name("FILE")
+            .help("A .env file which environment variables will be drawn from.")
+            .takes_value(true),
+    )
+}
 
-    let twitch_client = ds
-        .read_from("twitch-client.json")
-        .with_format(devsecrets::JsonFormat)
-        .into_value::<oauth::ClientInfo>()
-        .expect("Secret is readable");
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    env_logger::init();
+    let matches = args().get_matches();
+
+    if let Some(dotenv_path) = matches.value_of_os("dotenv") {
+        dotenv::from_path(dotenv_path)?;
+    }
+
+    dotenv::from_path(dirs::home_dir().unwrap().join(".config/minibot-server/config.env"))?;
+
+    let twitch_client = envy::prefixed("MINIBOT_").from_env::<oauth::ClientInfo>()?;
 
     let twitch_config = oauth::Config::new(config::TWITCH_PROVIDER.clone(), twitch_client);
 
@@ -45,4 +58,6 @@ async fn main() {
         _ = server => (),
         _ = tokio::signal::ctrl_c() => (),
     };
+
+    Ok(())
 }
