@@ -84,14 +84,17 @@ impl CancelToken {
     /// Runs the given function when this token is canceled. The future will complete
     /// without calling the function if the handle is ignored. Spawning this future
     /// will not leak a task.
-    pub async fn on_canceled<F>(mut self, func: F) where F: FnOnce() {
+    pub async fn on_canceled<F>(mut self, func: F)
+    where
+        F: FnOnce(),
+    {
         match std::mem::replace(&mut self.0, TokenState::Ignored) {
             TokenState::Pending(recv) => match recv.await {
-                Ok(()) => {},
+                Ok(()) => {}
                 Err(_) => func(),
-            }
+            },
             TokenState::Canceled => func(),
-            TokenState::Ignored => {},
+            TokenState::Ignored => {}
         }
     }
 }

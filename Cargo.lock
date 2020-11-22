@@ -1336,6 +1336,7 @@ dependencies = [
  "sodiumoxide",
  "thiserror",
  "tokio",
+ "tokio-tungstenite",
 ]
 
 [[package]]

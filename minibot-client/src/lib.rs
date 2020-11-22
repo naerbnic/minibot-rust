@@ -1,6 +1,6 @@
 mod access_token;
 
-use minibot_common::secure::SecureString;
+use minibot_common::{secure::SecureString, net::rpc::{ClientChannel, CommandHandler}};
 use tokio_tungstenite::{
     connect_async, WebSocketStream,
     tungstenite::{self, client::IntoClientRequest, http},

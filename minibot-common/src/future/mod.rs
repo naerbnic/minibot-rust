@@ -1,4 +1,5 @@
 pub mod cancel;
+pub mod pipe;
 
 use std::borrow::Borrow;
 
@@ -80,14 +81,14 @@ where
     Ok(())
 }
 
-
 pub async fn try_stream_pipe<In, Out>(
     stream: In,
     sink: Out,
 ) -> Result<(), PipeError<In::Error, Out::Error>>
 where
     In: TryStream + Unpin,
-    Out: Sink<In::Ok> + Unpin, {
+    Out: Sink<In::Ok> + Unpin,
+{
     try_map_pipe(stream.into_stream(), sink, |item| item).await
 }
 
@@ -108,7 +109,7 @@ where
 /// Link up a stream and a sink, where the stream messages are serialized and passed along.
 pub async fn ser_json_pipe<In, Out>(
     stream: In,
-    sink: Out
+    sink: Out,
 ) -> Result<(), PipeError<serde_json::Error, Out::Error>>
 where
     In: Stream + Unpin,
