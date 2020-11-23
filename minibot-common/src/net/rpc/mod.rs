@@ -48,9 +48,9 @@ mod msg;
 use futures::channel::mpsc;
 use futures::prelude::*;
 use msg::Message;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use crate::future::{cancel::CancelToken, deser_json_pipe, pipe, ser_json_pipe};
+use crate::future::{cancel::CancelToken, deser_json_pipe, pipe, pipe::PipeEnd, ser_json_pipe};
 
 #[derive(thiserror::Error, Debug)]
 pub enum CommandError {
@@ -64,6 +64,21 @@ pub enum ChannelError {
     SerdeError(#[from] serde_json::Error),
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum SendError {
+    #[error("Channel was closed")]
+    SerdeError(#[from] mpsc::SendError),
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum SendCommandError {
+    #[error("Failed to serialize command")]
+    Serde(#[from] serde_json::Error),
+
+    #[error("Channel was closed.")]
+    ChannelClosed(#[from] SendError),
+}
+
 /// A object-safe trait which can handle incomming commands, and produce a stream of outputs.
 pub trait CommandHandler: Send {
     fn start_command(
@@ -73,6 +88,11 @@ pub trait CommandHandler: Send {
         output: mpsc::Sender<serde_json::Value>,
         cancel: CancelToken,
     ) -> Result<(), CommandError>;
+}
+
+pub trait Command: Serialize {
+    type Response: DeserializeOwned + Send + 'static;
+    fn method() -> &'static str;
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
@@ -150,12 +170,12 @@ impl ClientChannel {
     }
 
     /// Sends a command to the remote end of the connection.
-    pub async fn send_command(
+    async fn send_raw_command(
         &mut self,
         method: &str,
         payload: serde_json::Value,
         sink: mpsc::Sender<serde_json::Value>,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), SendError> {
         self.event_send
             .send(broker::Event::new_command(
                 method.to_string(),
@@ -166,15 +186,40 @@ impl ClientChannel {
 
         Ok(())
     }
+    pub async fn send_command<Cmd>(
+        &mut self,
+        command: Cmd,
+    ) -> Result<PipeEnd<Cmd::Response>, SendCommandError>
+    where
+        Cmd: Command,
+    {
+        let (resp_start, resp_end) = mpsc::channel(0);
+        self.send_raw_command(Cmd::method(), serde_json::to_value(&command)?, resp_start)
+            .await?;
+
+        Ok(PipeEnd::wrap(resp_end)
+            .map(|item| serde_json::from_value(item))
+            .end_on_error())
+    }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::net::rpc::Command;
     use serde_json::json;
 
-    #[derive(Clone)]
-    struct TokioSpawner;
+    #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+    #[serde(transparent)]
+    struct EchoCommand(serde_json::Value);
+
+    impl Command for EchoCommand {
+        type Response = EchoCommand;
+
+        fn method() -> &'static str {
+            "echo"
+        }
+    }
 
     struct EchoHandler;
 
@@ -292,15 +337,13 @@ mod test {
             }
         );
 
-        let (sink, resp_stream) = mpsc::channel(10);
-
-        chan2
-            .send_command("echo", payload_value.clone(), sink)
+        let resp_stream = chan2
+            .send_command(EchoCommand(payload_value.clone()))
             .await?;
 
-        let resps = resp_stream.collect::<Vec<_>>().await;
+        let resps = resp_stream.into_stream().collect::<Vec<_>>().await;
 
-        assert_eq!(resps, vec![payload_value]);
+        assert_eq!(resps, vec![EchoCommand(payload_value)]);
 
         Ok(())
     }

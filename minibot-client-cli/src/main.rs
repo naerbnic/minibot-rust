@@ -18,7 +18,11 @@ async fn main() -> anyhow::Result<()> {
         )
         .await?;
 
-    println!("Client Authentication: {:?}", client_authn);
+    eprintln!("Client Authentication: {:?}", client_authn);
+
+    let _connect = server.connect(&client_authn).await?;
+
+    eprintln!("Connected!");
 
     Ok(())
 }

@@ -1,8 +1,16 @@
 mod access_token;
 
-use minibot_common::{secure::SecureString, net::rpc::{ClientChannel, CommandHandler}};
+use minibot_common::{
+    future::pipe::PipeEnd,
+    net::{
+        rpc::{ClientChannel, Command, CommandError, CommandHandler, SendCommandError},
+        start_websocket_rpc,
+    },
+    secure::SecureString,
+};
+use serde::{Deserialize, Serialize};
 use tokio_tungstenite::{
-    connect_async, WebSocketStream,
+    connect_async,
     tungstenite::{self, client::IntoClientRequest, http},
 };
 use url::Url;
@@ -28,6 +36,20 @@ pub enum ConnectError {
 
     #[error(transparent)]
     OpenBrowserError(Box<dyn std::error::Error + Send + Sync>),
+}
+
+pub struct NullCommandHandler;
+
+impl CommandHandler for NullCommandHandler {
+    fn start_command(
+        &mut self,
+        _method: &str,
+        _payload: &serde_json::Value,
+        _output: futures::channel::mpsc::Sender<serde_json::Value>,
+        _cancel: minibot_common::future::cancel::CancelToken,
+    ) -> Result<(), minibot_common::net::rpc::CommandError> {
+        Err(CommandError::UnknownMethod)
+    }
 }
 
 /// Info for connecting to a minibot server.
@@ -80,7 +102,9 @@ impl Server {
 
         let (stream, _) = connect_async(request).await?;
 
-        Ok(Connection { stream })
+        let client = start_websocket_rpc(stream, NullCommandHandler);
+
+        Ok(Connection { client })
     }
 }
 
@@ -88,5 +112,35 @@ impl Server {
 pub struct ClientAuthn(SecureString);
 
 pub struct Connection {
-    stream: WebSocketStream<tokio::net::TcpStream>,
+    client: ClientChannel,
+}
+
+impl Connection {
+    pub async fn send_command<Cmd>(
+        &mut self,
+        command: Cmd,
+    ) -> Result<PipeEnd<Cmd::Response>, SendCommandError>
+    where
+        Cmd: Command,
+    {
+        self.client.send_command(command).await
+    }
+}
+
+// --------------
+
+#[derive(Serialize)]
+pub struct UserIdCommand;
+
+#[derive(Deserialize)]
+pub struct UserIdResponse {
+    user_id: u64,
+}
+
+impl Command for UserIdCommand {
+    type Response = UserIdResponse;
+
+    fn method() -> &'static str {
+        "user_id"
+    }
 }

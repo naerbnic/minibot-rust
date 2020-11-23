@@ -1301,6 +1301,7 @@ dependencies = [
  "minibot-common",
  "reqwest",
  "serde",
+ "serde_json",
  "serde_urlencoded 0.6.1",
  "thiserror",
  "tokio",

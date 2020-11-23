@@ -13,6 +13,7 @@ pub enum Either<A, B> {
     Right(B),
 }
 
+#[derive(Clone)]
 pub struct PipeStart<T>(mpsc::Sender<T>);
 
 impl<T> PipeStart<T> {
@@ -25,7 +26,7 @@ impl<T> PipeStart<T> {
 #[error("This sink was closed.")]
 pub struct SinkClosed;
 
-pub type BoxSink<T> = Box<dyn Sink<T, Error = SinkClosed> + Send>;
+pub type BoxSink<T> = Box<dyn Sink<T, Error = SinkClosed> + Unpin + Send>;
 
 impl<T> PipeStart<T>
 where
@@ -44,6 +45,18 @@ where
     pub fn split(self) -> (Self, Self) {
         let sink = self.into_mpsc();
         (PipeStart(sink.clone()), PipeStart(sink))
+    }
+
+    pub fn map_before<F, U>(self, mut f: F) -> PipeStart<U>
+    where
+        F: FnMut(U) -> T + Send + 'static,
+        U: Send + 'static,
+    {
+        PipeStart::wrap(
+            self.into_mpsc().with_flat_map(move |item| {
+                futures::stream::once(futures::future::ready(Ok(f(item))))
+            }),
+        )
     }
 
     pub fn connect(self, other: PipeEnd<T>) {
