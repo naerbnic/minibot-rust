@@ -31,8 +31,8 @@ struct EnvParams {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    env_logger::init();
     dotenv::dotenv()?;
+    env_logger::init();
     let matches = args().get_matches();
 
     if let Some(dotenv_path) = matches.value_of_os("dotenv") {

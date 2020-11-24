@@ -7,14 +7,17 @@ async fn main() -> anyhow::Result<()> {
         .arg(Arg::with_name("SERVER").required(true))
         .get_matches();
 
-    println!("Matches: {:?}", matches);
-
     let server = Server::new(matches.value_of("SERVER").unwrap());
+
+    eprintln!("Trying to start server...");
 
     let client_authn = server
         .authenticate(
             std::time::Instant::now() + std::time::Duration::from_secs(300),
-            |url| webbrowser::open(url).map(|_| ()),
+            |url| {
+                eprintln!("Go to URL {}", url);
+                Ok::<_, std::convert::Infallible>(())
+            },
         )
         .await?;
 
