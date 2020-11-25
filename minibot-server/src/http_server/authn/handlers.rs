@@ -3,26 +3,69 @@ use minibot_common::proof_key;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use super::{AuthConfirmInfo, AuthRequestInfo};
 use crate::{config::oauth, services::base::token_store::TokenStoreHandle};
 
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(tag = "auth_method")]
+pub enum AuthMethod {
+    #[serde(rename = "local_http")]
+    LocalHttp { redirect_uri: String },
+    #[serde(rename = "token")]
+    Token,
+}
+
+/// Info stored between the post to the minibot auth exchange start and the
+/// OAuth2 redirect response.
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct AuthRequestInfo {
+    /// The verification method desired by the client
+    pub auth_method: AuthMethod,
+
+    /// The challenge string provided by a user.
+    pub challenge: proof_key::Challenge,
+}
+
+impl crate::services::base::token_store::TokenData for AuthRequestInfo {}
+
+/// Info stored between returning the token via redirect to the user and the
+/// user submitting the token to the account-create/bot-add endpoint with the
+/// challenge verifier
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct AuthConfirmInfo {
+    /// The code returned by the OAuth2 provider that can be exchanged for a
+    /// token.
+    pub code: String,
+
+    /// The challenge provided by the user. By providing a verifier, it
+    /// ensures that the final use of the token on the endpoint is from the
+    /// person who requested it.
+    pub challenge: proof_key::Challenge,
+}
+
+impl crate::services::base::token_store::TokenData for AuthConfirmInfo {}
+
 pub async fn handle_start_auth_request(
-    redirect_uri: String,
+    auth_method: AuthMethod,
     challenge: proof_key::Challenge,
     token_store: &TokenStoreHandle,
     oauth_config: &oauth::Config,
 ) -> Result<String, anyhow::Error> {
-    let url = Url::parse(&*redirect_uri)?;
-    if url.scheme() != "http" {
-        bail!("Redirect URI must have 'http' scheme.")
-    }
+    match &auth_method {
+        AuthMethod::LocalHttp { redirect_uri } => {
+            let url = Url::parse(&redirect_uri)?;
+            if url.scheme() != "http" {
+                bail!("Redirect URI must have 'http' scheme.")
+            }
 
-    if url.host_str() != Some("127.0.0.1") && url.host_str() != Some("[::1]") {
-        bail!("Host must be 127.0.0.1 or [::1].")
+            if url.host_str() != Some("127.0.0.1") && url.host_str() != Some("[::1]") {
+                bail!("Host must be 127.0.0.1 or [::1].")
+            }
+        }
+        _ => {}
     }
 
     let auth_request = AuthRequestInfo {
-        local_redirect: redirect_uri,
+        auth_method,
         challenge,
     };
 
@@ -35,32 +78,6 @@ pub async fn handle_start_auth_request(
     )?;
 
     Ok(redirect_uri)
-}
-
-pub async fn handle_oauth_callback(
-    code: String,
-    state: String,
-    token_store: &TokenStoreHandle,
-) -> Result<String, anyhow::Error> {
-    let auth_req: AuthRequestInfo = match token_store.from_token(&state).await? {
-        Some(auth_req) => auth_req,
-        None => anyhow::bail!("Could not retrieve token."),
-    };
-
-    let confirm_info = AuthConfirmInfo {
-        code,
-        challenge: auth_req.challenge.clone(),
-    };
-
-    let token = token_store.to_token(&confirm_info).await?;
-
-    let mut local_redirect_url = Url::parse(&auth_req.local_redirect)?;
-    local_redirect_url
-        .query_pairs_mut()
-        .clear()
-        .append_pair("token", &token);
-
-    Ok(local_redirect_url.into_string())
 }
 
 #[derive(Deserialize)]
@@ -85,7 +102,7 @@ pub async fn handle_confirm(
         .await?
         .ok_or_else(|| anyhow::anyhow!("Could not retrieve token."))?;
     verifier.verify(&auth_complete_info.challenge)?;
-    
+
     // Now that we're all verified, finish the key exchange
     let response_text = client
         .post(oauth_config.provider().token_endpoint())

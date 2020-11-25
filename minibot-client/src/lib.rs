@@ -6,6 +6,7 @@ use minibot_common::{
         rpc::{ClientChannel, Command, CommandError, CommandHandler, SendCommandError},
         start_websocket_rpc,
     },
+    proof_key,
     secure::SecureString,
 };
 use serde::{Deserialize, Serialize};
@@ -15,7 +16,7 @@ use tokio_tungstenite::{
 };
 use url::Url;
 
-pub use access_token::get_access_token as run_client;
+pub use access_token::get_local_http_access_token as run_client;
 
 #[derive(thiserror::Error, Debug)]
 pub enum AuthnError {
@@ -70,7 +71,8 @@ impl Server {
             ws_url: server_addr.join("connect").unwrap(),
         }
     }
-    pub async fn authenticate<F, E>(
+
+    pub async fn authenticate_local_http<F, E>(
         &self,
         deadline: std::time::Instant,
         open_browser_func: F,
@@ -80,7 +82,7 @@ impl Server {
         E: std::error::Error + Send + Sync + 'static,
     {
         let client = reqwest::Client::new();
-        let token = access_token::get_access_token(
+        let token = access_token::get_local_http_access_token(
             &client,
             deadline,
             &self.auth_url,
@@ -90,6 +92,17 @@ impl Server {
         .await?;
 
         Ok(ClientAuthn(token.into()))
+    }
+
+    pub async fn authenticate_token<'a>(&'a self) -> (String, TokenExchanger<'a>) {
+        let (redirect_url, verifier) = access_token::make_token_auth_url(&self.auth_url);
+        (
+            redirect_url.into_string(),
+            TokenExchanger {
+                server: self,
+                verifier: verifier,
+            },
+        )
     }
 
     pub async fn connect(&self, authn: &ClientAuthn) -> Result<Connection, ConnectError> {
@@ -105,6 +118,26 @@ impl Server {
         let client = start_websocket_rpc(stream, NullCommandHandler);
 
         Ok(Connection { client })
+    }
+}
+
+pub struct TokenExchanger<'a> {
+    server: &'a Server,
+    verifier: proof_key::Verifier,
+}
+
+impl<'a> TokenExchanger<'a> {
+    pub async fn exchange(self, token: &str) -> Result<ClientAuthn, AuthnError> {
+        let client = reqwest::Client::new();
+        let result = access_token::exchange_confirm_token(
+            &client,
+            &self.server.exchange_url,
+            token,
+            &self.verifier,
+        )
+        .await?;
+        
+        Ok(ClientAuthn(result.into()))
     }
 }
 

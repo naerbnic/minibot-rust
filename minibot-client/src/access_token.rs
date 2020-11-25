@@ -10,7 +10,11 @@ use warp::Filter;
 
 use crate::AuthnError;
 
-fn make_auth_url(auth_url: &Url, addr: &SocketAddr, challenge: &proof_key::Challenge) -> Url {
+fn make_local_http_auth_url(
+    auth_url: &Url,
+    addr: &SocketAddr,
+    challenge: &proof_key::Challenge,
+) -> Url {
     let mut auth_url = auth_url.clone();
     assert!(
         auth_url.query() == None,
@@ -19,11 +23,13 @@ fn make_auth_url(auth_url: &Url, addr: &SocketAddr, challenge: &proof_key::Chall
 
     #[derive(Serialize)]
     struct Query<'a> {
+        auth_method: String,
         redirect_uri: String,
         challenge: &'a proof_key::Challenge,
     }
 
     let query = Query {
+        auth_method: "local_http".to_string(),
         redirect_uri: format!("http://{addr}/callback", addr = addr),
         challenge,
     };
@@ -32,7 +38,62 @@ fn make_auth_url(auth_url: &Url, addr: &SocketAddr, challenge: &proof_key::Chall
     auth_url
 }
 
-pub async fn get_access_token<E>(
+pub fn make_token_auth_url(auth_url: &Url) -> (Url, proof_key::Verifier) {
+    let (challenge, verifier) = proof_key::generate_pair();
+
+    let mut auth_url = auth_url.clone();
+    assert!(
+        auth_url.query() == None,
+        "target_url must not have an existing query"
+    );
+
+    #[derive(Serialize)]
+    struct Query<'a> {
+        auth_method: String,
+        challenge: &'a proof_key::Challenge,
+    }
+
+    let query = Query {
+        auth_method: "token".to_string(),
+        challenge: &challenge,
+    };
+
+    auth_url.set_query(Some(&serde_urlencoded::to_string(query).unwrap()));
+    (auth_url, verifier)
+}
+
+pub async fn exchange_confirm_token(
+    client: &reqwest::Client,
+    exchange_url: &Url,
+    token: &str,
+    verifier: &proof_key::Verifier,
+) -> Result<String, AuthnError> {
+    #[derive(Serialize)]
+    struct Query<'a> {
+        token: &'a str,
+        verifier: &'a proof_key::Verifier,
+    }
+
+    let query = Query { token, verifier };
+
+    let response = client
+        .post(exchange_url.as_str())
+        .query(&query)
+        .send()
+        .await?
+        .error_for_status()?;
+
+    #[derive(Deserialize)]
+    struct Body {
+        access_token: String,
+    }
+
+    let Body { access_token } = response.json::<Body>().await?;
+
+    Ok(access_token)
+}
+
+pub async fn get_local_http_access_token<E>(
     client: &reqwest::Client,
     deadline: std::time::Instant,
     auth_url: &Url,
@@ -45,7 +106,7 @@ where
     let (addr, server) = run_server(tokio::time::delay_until(deadline.into()));
     let (challenge, verifier) = proof_key::generate_pair();
 
-    open_browser_func(make_auth_url(auth_url, &addr, &challenge))
+    open_browser_func(make_local_http_auth_url(auth_url, &addr, &challenge))
         .map_err(|e| AuthnError::OpenBrowserError(Box::new(e)))?;
 
     let token = server.await.ok_or(AuthnError::DidNotGetToken)?;
@@ -55,28 +116,7 @@ where
         "exchange_url must not have an existing query"
     );
 
-    #[derive(Serialize)]
-    struct Query {
-        token: String,
-        verifier: proof_key::Verifier,
-    }
-
-    let query = Query { token, verifier };
-
-    let response = client
-        .post(exchange_url.as_str())
-        .query(&query)
-        .send()
-        .await?;
-
-    #[derive(Deserialize)]
-    struct Body {
-        access_token: String,
-    }
-
-    let Body { access_token } = response.json::<Body>().await?;
-
-    Ok::<_, AuthnError>(access_token)
+    exchange_confirm_token(client, exchange_url, &token, &verifier).await
 }
 
 fn server_route(

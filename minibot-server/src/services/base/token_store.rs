@@ -38,7 +38,12 @@ impl TokenStoreHandle {
     pub async fn from_token<T: TokenData>(&self, token: &str) -> anyhow::Result<Option<T>> {
         if let Some(vec) = self.0.from_token(token).await? {
             let encoded_val: EncodedType<T> = serde_json::from_slice(&vec)?;
-            anyhow::ensure!(encoded_val.token_type != T::type_id(), "Wrong token type.");
+            anyhow::ensure!(
+                encoded_val.token_type == T::type_id(),
+                "Wrong token type. Got {:?}, expected {:?}",
+                encoded_val.token_type,
+                T::type_id()
+            );
 
             Ok(Some(encoded_val.val))
         } else {

@@ -1,5 +1,6 @@
 use clap::{App, Arg};
 use minibot_client::Server;
+use std::io::prelude::*;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -11,15 +12,17 @@ async fn main() -> anyhow::Result<()> {
 
     eprintln!("Trying to start server...");
 
-    let client_authn = server
-        .authenticate(
-            std::time::Instant::now() + std::time::Duration::from_secs(300),
-            |url| {
-                eprintln!("Go to URL {}", url);
-                Ok::<_, std::convert::Infallible>(())
-            },
-        )
-        .await?;
+    let (auth_url, exchanger) = server.authenticate_token().await;
+
+    println!("Go to the following URL: {}", auth_url);
+
+    print!("Paste the confirmation code you received at the end of the process here: ");
+    std::io::stdout().flush()?;
+    let mut code = String::new();
+    std::io::stdin().read_line(&mut code)?;
+    let code = code.strip_suffix("\n").unwrap();
+    
+    let client_authn = exchanger.exchange(code).await?;
 
     eprintln!("Client Authentication: {:?}", client_authn);
 

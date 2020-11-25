@@ -1,7 +1,4 @@
-use super::{
-    handlers::{handle_oauth_callback, handle_start_auth_request},
-    AuthConfirmInfo,
-};
+use super::handlers::{handle_start_auth_request, AuthConfirmInfo, AuthMethod, AuthRequestInfo};
 use crate::{
     config::oauth,
     http_server::middleware::reqwest::{ClientHandle, NewReqwestClientMiddleware},
@@ -16,8 +13,11 @@ use crate::{
 use futures::prelude::*;
 use gotham::{
     handler::HandlerError,
-    hyper::{Body, Response},
-    middleware::state::StateMiddleware,
+    hyper::{Body, Response, StatusCode},
+    middleware::{
+        logger::{RequestLogger, SimpleLogger},
+        state::StateMiddleware,
+    },
     pipeline::{new_pipeline, single::single_pipeline},
     router::{builder::*, Router},
     state::{request_id, FromState, State},
@@ -25,10 +25,12 @@ use gotham::{
 use gotham_derive::{StateData, StaticResponseExtender};
 use minibot_common::proof_key::{Challenge, Verifier};
 use serde::{Deserialize, Serialize};
+use url::Url;
 
-#[derive(Deserialize, Debug, StateData, StaticResponseExtender)]
+#[derive(Serialize, Deserialize, Debug, StateData, StaticResponseExtender)]
 pub struct LoginQuery {
-    redirect_uri: String,
+    auth_method: String,
+    redirect_uri: Option<String>,
     challenge: Challenge,
 }
 
@@ -37,8 +39,21 @@ async fn login_handler(state: &mut State) -> Result<Response<Body>, HandlerError
     let token_store = TokenStoreHandle::take_from(state);
     let login_query = LoginQuery::take_from(state);
 
+    log::info!("Got login request with params: {:?}", login_query);
+
+    let auth_method: AuthMethod =
+        match (login_query.auth_method.as_str(), &login_query.redirect_uri) {
+            ("local_http", Some(redirect_uri)) => AuthMethod::LocalHttp {
+                redirect_uri: redirect_uri.clone(),
+            },
+            ("token", None) => AuthMethod::Token,
+            _ => return Err(anyhow::anyhow!("Unexpected combination of query fields.").into()),
+        };
+
+    log::info!("Found auth_method: {:?}", auth_method);
+
     let redirect = handle_start_auth_request(
-        login_query.redirect_uri.clone(),
+        auth_method,
         login_query.challenge.clone(),
         &token_store,
         &oauth_config,
@@ -63,18 +78,50 @@ async fn callback_handler(state: &mut State) -> Result<Response<Body>, HandlerEr
     let token_store = TokenStoreHandle::take_from(state);
     let callback_query = CallbackQuery::take_from(state);
 
-    let redirect = handle_oauth_callback(
-        callback_query.code.clone(),
-        callback_query.state.clone(),
-        &token_store,
-    )
-    .await?;
+    log::info!("Handling callback with query: {:?}", callback_query);
 
-    log::info!("Redirect to local callback: {}", redirect);
+    let auth_req: AuthRequestInfo = match dbg!(token_store.from_token(&callback_query.state).await)? {
+        Some(auth_req) => auth_req,
+        None => return Err(anyhow::anyhow!("Could not retrieve token.").into()),
+    };
 
-    Ok(gotham::helpers::http::response::create_temporary_redirect(
-        state, redirect,
-    ))
+    log::info!("Got auth request info: {:?}", auth_req);
+
+    let confirm_info = AuthConfirmInfo {
+        code: callback_query.code.clone(),
+        challenge: auth_req.challenge.clone(),
+    };
+
+    let token = token_store.to_token(&confirm_info).await?;
+
+    match &auth_req.auth_method {
+        AuthMethod::LocalHttp { redirect_uri } => {
+            let mut local_redirect_url = Url::parse(&redirect_uri)?;
+            local_redirect_url
+                .query_pairs_mut()
+                .clear()
+                .append_pair("token", &token);
+
+            log::info!("Redirect to local callback: {}", local_redirect_url);
+
+            Ok(gotham::helpers::http::response::create_temporary_redirect(
+                state,
+                local_redirect_url.into_string(),
+            ))
+        }
+        AuthMethod::Token => Ok(gotham::helpers::http::response::create_response(
+            state,
+            StatusCode::OK,
+            mime::TEXT_PLAIN_UTF_8,
+            format!(
+                concat!(
+                    "Your confirmation code is {}\n",
+                    "Please copy this to the app which is requesting authentication.\n"
+                ),
+                token
+            ),
+        )),
+    }
 }
 
 #[derive(Deserialize, Debug, StateData, StaticResponseExtender)]
@@ -104,7 +151,9 @@ async fn handle_endpoint(
         token_type: String,
     }
 
-    let auth_confirm_info: AuthConfirmInfo = match token_store.from_token(&q.token).await? {
+    log::info!("Handling confirmation with params: {:?}", q);
+
+    let auth_confirm_info: AuthConfirmInfo = match dbg!(token_store.from_token(&q.token).await)? {
         Some(info) => info,
         None => anyhow::bail!("Could not find confirmation."),
     };
@@ -235,6 +284,8 @@ pub fn router(
 ) -> Router {
     let (chain, pipelines) = single_pipeline(
         new_pipeline()
+            .add(SimpleLogger::new(log::Level::Info))
+            .add(RequestLogger::new(log::Level::Info))
             .add(NewReqwestClientMiddleware::new(reqwest::Client::new()))
             .add(StateMiddleware::new(oauth_config))
             .add(StateMiddleware::new(token_store))
