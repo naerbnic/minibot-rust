@@ -9,6 +9,7 @@ use minibot_common::{
     proof_key,
     secure::SecureString,
 };
+
 use serde::{Deserialize, Serialize};
 use tokio_tungstenite::{
     connect_async,
@@ -56,6 +57,7 @@ impl CommandHandler for NullCommandHandler {
 /// Info for connecting to a minibot server.
 #[derive(Clone, Debug)]
 pub struct Server {
+    client: reqwest::Client,
     auth_url: Url,
     exchange_url: Url,
     ws_url: Url,
@@ -66,6 +68,7 @@ impl Server {
         let server_addr = url::Url::parse(&server_addr).unwrap();
 
         Server {
+            client: reqwest::Client::new(),
             auth_url: server_addr.join("login").unwrap(),
             exchange_url: server_addr.join("confirm").unwrap(),
             ws_url: server_addr.join("connect").unwrap(),
@@ -81,9 +84,8 @@ impl Server {
         F: FnOnce(&str) -> Result<(), E>,
         E: std::error::Error + Send + Sync + 'static,
     {
-        let client = reqwest::Client::new();
         let token = access_token::get_local_http_access_token(
-            &client,
+            &self.client,
             deadline,
             &self.auth_url,
             &self.exchange_url,
@@ -162,18 +164,3 @@ impl Connection {
 
 // --------------
 
-#[derive(Serialize)]
-pub struct UserIdCommand;
-
-#[derive(Deserialize)]
-pub struct UserIdResponse {
-    user_id: u64,
-}
-
-impl Command for UserIdCommand {
-    type Response = UserIdResponse;
-
-    fn method() -> &'static str {
-        "user_id"
-    }
-}
