@@ -10,7 +10,8 @@ pub struct PostgresUser {
 
 #[derive(Serialize, Deserialize)]
 pub struct Postgres {
-    pub address: String,
+    pub hostname: String,
+    pub port: u16,
     pub admin_user: PostgresUser,
     pub client_user: PostgresUser,
     pub db_name: String,

@@ -23,6 +23,4 @@ mod user;
 pub use db_handle::DbHandle;
 
 mod embedded {
-    use refinery::embed_migrations;
-    embed_migrations!();
 }
