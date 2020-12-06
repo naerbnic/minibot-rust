@@ -10,7 +10,6 @@ use minibot_common::{
     secure::SecureString,
 };
 
-use serde::{Deserialize, Serialize};
 use tokio_tungstenite::{
     connect_async,
     tungstenite::{self, client::IntoClientRequest, http},
