@@ -13,17 +13,6 @@ use services::{fake::token_store, live::twitch_token};
 
 use futures::prelude::*;
 
-fn args() -> clap::App<'static, 'static> {
-    use clap::{App, Arg};
-    App::new("minibot-server").arg(
-        Arg::with_name("dotenv")
-            .long("dotenv")
-            .value_name("FILE")
-            .help("A .env file which environment variables will be drawn from.")
-            .takes_value(true),
-    )
-}
-
 #[derive(Deserialize, Debug)]
 struct EnvParams {
     server_addr: String,
@@ -31,14 +20,7 @@ struct EnvParams {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    dotenv::dotenv()?;
     env_logger::init();
-    let matches = args().get_matches();
-
-    if let Some(dotenv_path) = matches.value_of_os("dotenv") {
-        dotenv::from_path(dotenv_path)?;
-    }
-
     let env_params = envy::prefixed("MINIBOT_").from_env::<EnvParams>()?;
 
     let twitch_client = envy::prefixed("MINIBOT_").from_env::<oauth::ClientInfo>()?;
