@@ -8,5 +8,6 @@ members = [
     "minibot-client", 
     "minibot-common", 
     "minibot-client-cli", 
-    "minibot-db-sqlite"
+    "minibot-db-sqlite",
+    "deploy/dev"
 ]

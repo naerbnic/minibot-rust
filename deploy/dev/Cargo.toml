@@ -1,0 +1,16 @@
+[package]
+name = "dev-start"
+version = "0.1.0"
+authors = ["Brian Chin <brian.chin@gmail.com>"]
+edition = "2018"
+publish = false
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.35"
+env_logger = "0.8.2"
+log = "0.4.11"
+serde = "1.0.118"
+shellexpand = "2.0.0"
+xdg = "2.2.0"
