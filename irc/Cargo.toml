@@ -16,8 +16,8 @@ tokio-util = { version = "0.3.0", features = ["compat", "codec"] }
 bytes = "0.5.4"
 async-trait = "0.1.26"
 byte_string = "1.0.0"
-minibot-irc-raw = { path = "../minibot-irc-raw" }
-minibot-byte-string = { path = "../minibot-byte-string" }
+minibot-irc-raw = { path = "../irc-raw" }
+minibot-byte-string = { path = "../byte-string" }
 async-native-tls = "0.3.3"
 
 [dev-dependencies]
