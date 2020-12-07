@@ -1,6 +1,6 @@
 mod migrations {
     use refinery::embed_migrations;
-    embed_migrations!("../migrations");
+    embed_migrations!("../../deploy/migrations");
 }
 
 pub fn apply_migrations(connection_url: &str) {
