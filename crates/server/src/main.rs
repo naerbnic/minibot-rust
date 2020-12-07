@@ -7,17 +7,17 @@ mod net;
 mod services;
 mod util;
 
-use minibot_config::fmt::AsciiWrap;
 use futures::prelude::*;
+use minibot_config::fmt::AsciiWrap;
 use serde::Deserialize;
 
-use services::{fake::token_store, live::twitch_token};
 use config::oauth;
+use services::{fake::token_store, live::twitch_token};
 
 #[derive(Deserialize, Debug)]
 struct EnvParams {
     server_addr: String,
-    twitch_client: Option<AsciiWrap<minibot_config::OAuthClient>>,
+    twitch_client: AsciiWrap<minibot_config::OAuthClient>,
 }
 
 #[tokio::main]
@@ -27,9 +27,10 @@ async fn main() -> anyhow::Result<()> {
 
     eprintln!("Read env twitch_client: {:?}", env_params.twitch_client);
 
-    let twitch_client = envy::prefixed("MINIBOT_").from_env::<oauth::ClientInfo>()?;
-
-    let twitch_config = oauth::Config::new(config::TWITCH_PROVIDER.clone(), twitch_client);
+    let twitch_config = oauth::Config::new(
+        config::TWITCH_PROVIDER.clone(),
+        env_params.twitch_client.clone().into_inner(),
+    );
 
     let twitch_token_service = twitch_token::TwitchTokenHandle::new(twitch_config.clone());
 

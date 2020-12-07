@@ -58,17 +58,17 @@ impl ClientInfo {
 #[derive(Debug, Clone, Serialize, Deserialize, gotham_derive::StateData)]
 pub struct Config {
     provider: ProviderInfo,
-    client: ClientInfo,
+    client: minibot_config::OAuthClient,
 }
 
 impl Config {
-    pub fn new(provider: ProviderInfo, client: ClientInfo) -> Self {
+    pub fn new(provider: ProviderInfo, client: minibot_config::OAuthClient) -> Self {
         Config { provider, client }
     }
     pub fn provider(&self) -> &ProviderInfo {
         &self.provider
     }
-    pub fn client(&self) -> &ClientInfo {
+    pub fn client(&self) -> &minibot_config::OAuthClient {
         &self.client
     }
     pub fn api_endpoint(&self) -> url::Url {
