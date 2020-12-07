@@ -20,16 +20,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "amplify_derive"
-version = "2.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38179e18c74d95a28a2ec779618554a9f2ba898b0fcfaf717538c467a99d1c49"
-dependencies = [
- "quote",
- "syn",
-]
-
-[[package]]
 name = "ansi_term"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1529,7 +1519,6 @@ dependencies = [
 name = "minibot-config"
 version = "0.1.0"
 dependencies = [
- "amplify_derive",
  "base64 0.13.0",
  "rmp-serde",
  "serde",
