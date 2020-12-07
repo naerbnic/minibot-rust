@@ -23,9 +23,13 @@ struct Arguments {
 enum DevCommand {
     /// Runs the server. Assumes all associated services are running.
     Run,
+    /// Creates the database. Does not initialize it in any way
     PgCreateDb,
+    /// Drops the database. Will ask for confirmation.
     PgDropDb,
+    /// Starts an interactive psql session with the database, logged in as the client user.
     PgSql,
+    /// Applies migrations to the database.
     ApplyMigrations,
 }
 
