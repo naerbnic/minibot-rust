@@ -531,6 +531,7 @@ dependencies = [
  "anyhow",
  "env_logger 0.8.2",
  "log",
+ "minibot-config",
  "postgres",
  "refinery",
  "serde",
@@ -1512,6 +1513,13 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-tungstenite",
+]
+
+[[package]]
+name = "minibot-config"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

@@ -1,4 +1,4 @@
-mod config;
+
 mod migrations;
 
 use std::borrow::Cow;
@@ -6,6 +6,8 @@ use std::ffi::OsString;
 use std::process::Command;
 use std::thread::{spawn, JoinHandle};
 use structopt::StructOpt;
+
+use minibot_config as config;
 
 #[derive(StructOpt)]
 #[structopt(about = "Tool for initializing and running a dev environment")]

@@ -1,0 +1,10 @@
+[package]
+authors = ["Brian Chin <brian.chin@gmail.com>"]
+edition = "2018"
+name = "minibot-config"
+version = "0.1.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde = {version = "1.0", features = ["derive"]}

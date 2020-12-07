@@ -56,3 +56,4 @@ pub struct ConfigFile {
     pub oauth_configs: BTreeMap<String, OAuth>,
     pub minibot: Minibot,
 }
+

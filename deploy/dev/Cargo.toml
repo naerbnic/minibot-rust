@@ -19,3 +19,5 @@ shellexpand = "2.0.0"
 structopt = "0.3.21"
 toml = "0.5.7"
 xdg = "2.2.0"
+
+minibot-config = { path = "../../crates/config" }
