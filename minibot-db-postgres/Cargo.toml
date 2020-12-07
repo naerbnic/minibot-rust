@@ -10,8 +10,10 @@ version = "0.1.0"
 async-trait = "0.1.30"
 bb8 = "0.4.1"
 bb8-postgres = "0.4.0"
+chrono = "0.4.19"
 futures = "0.3.4"
-sqlx = {version = "0.4.1", features = ["runtime-tokio-rustls"]}
+rand = "0.7.3"
+sqlx = {version = "0.4.1", features = ["runtime-tokio-rustls", "postgres", "chrono"]}
 thiserror = "1.0.15"
 tokio = {version = "0.2.18", features = ["rt-threaded"]}
 tokio-postgres = "0.5.3"

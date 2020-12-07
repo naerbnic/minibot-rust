@@ -1,3 +1,10 @@
+CREATE TABLE ephemeral_tokens (
+    token TEXT NOT NULL PRIMARY KEY,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    contents BYTEA NOT NULL
+);
+
 CREATE TABLE twitch_accounts (
     id TEXT NOT NULL PRIMARY KEY
 );

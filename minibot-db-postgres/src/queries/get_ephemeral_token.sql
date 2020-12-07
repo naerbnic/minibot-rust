@@ -1,0 +1,1 @@
+SELECT bin_data FROM ephemeral_tokens AS t WHERE t.token == ?

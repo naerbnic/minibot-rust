@@ -19,8 +19,8 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 mod db_handle;
 mod user;
+mod queries;
 
 pub use db_handle::DbHandle;
 
-mod embedded {
-}
+

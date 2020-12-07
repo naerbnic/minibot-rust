@@ -1,0 +1,1 @@
+DELETE FROM ephemeral_tokens WHERE expires_at <= ?
