@@ -1,13 +1,5 @@
 [workspace]
 members = [
-    "byte-string",
-    "server", 
-    "db-postgres", 
-    "irc", 
-    "irc-raw", 
-    "client", 
-    "common", 
-    "client-cli", 
-    "db-sqlite",
+    "crates/*",
     "deploy/dev"
 ]
