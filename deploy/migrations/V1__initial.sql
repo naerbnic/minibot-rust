@@ -1,11 +1,3 @@
-BEGIN TRANSACTION;
-
-CREATE TABLE schema_version (
-    version_id INTEGER NOT NULL
-);
-
-INSERT INTO schema_version (version_id) VALUES (1);
-
 CREATE TABLE twitch_accounts (
     id TEXT NOT NULL PRIMARY KEY
 );
@@ -38,5 +30,3 @@ CREATE TABLE minibot_tokens (
 );
 
 CREATE INDEX minibot_tokens_by_users ON minibot_tokens (user_id);
-
-END TRANSACTION;

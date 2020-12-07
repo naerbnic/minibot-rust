@@ -1,17 +1,17 @@
 [package]
-name = "minibot-db-postgres"
-version = "0.1.0"
 authors = ["Brian Chin <brian.chin@gmail.com>"]
 edition = "2018"
+name = "minibot-db-postgres"
+version = "0.1.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-thiserror = "1.0.15"
 async-trait = "0.1.30"
-tokio = { version = "0.2.18", features = ["rt-threaded"] }
 bb8 = "0.4.1"
 bb8-postgres = "0.4.0"
-tokio-postgres = "0.5.3"
 futures = "0.3.4"
-diesel = { version = "1.4.4", features = ["postgres"] }
+sqlx = {version = "0.4.1", features = ["runtime-tokio-rustls"]}
+thiserror = "1.0.15"
+tokio = {version = "0.2.18", features = ["rt-threaded"]}
+tokio-postgres = "0.5.3"

@@ -1,4 +1,5 @@
 mod config;
+mod migrations;
 
 use std::borrow::Cow;
 use std::ffi::OsString;
@@ -22,11 +23,8 @@ enum DevCommand {
     Run,
     PgCreateDb,
     PgDropDb,
-    #[structopt(setting = structopt::clap::AppSettings::TrailingVarArg)]
-    #[structopt(setting = structopt::clap::AppSettings::AllowLeadingHyphen)]
-    Diesel {
-        rest_args: Vec<String>,
-    },
+    PgSql,
+    ApplyMigrations,
 }
 
 fn new_cargo_run_command<'a>(
@@ -62,6 +60,17 @@ fn spawn_cargo_run_server<'a>(
     let mut cmd = new_cargo_run_command(package, bin);
     config(&mut cmd);
     spawn_server(cmd)
+}
+
+fn pgsql_connection_url(pg: &config::Postgres) -> String {
+    format!(
+        "postgres://{username}:{password}@{hostname}:{port}/{db_name}",
+        username = pg.client_user.username,
+        password = pg.client_user.password,
+        hostname = pg.hostname,
+        port = pg.port,
+        db_name = pg.db_name,
+    )
 }
 
 fn main() {
@@ -123,17 +132,15 @@ fn main() {
             });
         }
 
-        DevCommand::Diesel { rest_args } => run_command("diesel", |cmd| {
-            let pg = &config.postgres;
-            let db_url = format!(
-                "postgres://{username}:{password}@{hostname}:{port}/{db_name}",
-                username = pg.client_user.username,
-                password = pg.client_user.password,
-                hostname = pg.hostname,
-                port = pg.port,
-                db_name = pg.db_name,
-            );
-            cmd.env("DATABASE_URL", &db_url).args(rest_args);
-        }),
+        DevCommand::PgSql => {
+            run_command("psql", |cmd| {
+                let pg = &config.postgres;
+                cmd.arg(&pgsql_connection_url(pg));
+            })
+        }
+
+        DevCommand::ApplyMigrations => {
+            migrations::apply_migrations(&pgsql_connection_url(&config.postgres))
+        }
     }
 }
