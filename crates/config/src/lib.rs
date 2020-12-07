@@ -4,6 +4,12 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+macro_rules! getter {
+    ($field:ident, $type:ty) => {
+        pub fn $field(&self) -> &$type { &self.$field }
+    };
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct PostgresUser {
     pub username: String,
@@ -28,9 +34,15 @@ pub struct RabbitMq {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct OAuthClient {
-    pub client_id: String,
-    pub client_secret: String,
-    pub redirect_url: String,
+    client_id: String,
+    client_secret: String,
+    redirect_url: String,
+}
+
+impl OAuthClient {
+    getter!(client_id, str);
+    getter!(client_secret, str);
+    getter!(redirect_url, str);
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -40,10 +52,21 @@ pub struct OAuthProvider {
     pub jwks_keys_url: String,
 }
 
+impl OAuthProvider {
+    getter!(token_endpoint, str);
+    getter!(authz_endpoint, str);
+    getter!(jwks_keys_url, str);
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct OAuth {
     pub provider: OAuthProvider,
     pub client: OAuthClient,
+}
+
+impl OAuth {
+    getter!(provider, OAuthProvider);
+    getter!(client, OAuthClient);
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]

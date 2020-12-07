@@ -107,11 +107,11 @@ pub async fn handle_confirm(
     let response_text = client
         .post(oauth_config.provider().token_endpoint())
         .query(&[
-            ("client_id", &*oauth_config.client().client_id),
-            ("client_secret", &*oauth_config.client().client_secret),
+            ("client_id", oauth_config.client().client_id()),
+            ("client_secret", oauth_config.client().client_secret()),
             ("code", &*auth_complete_info.code),
             ("grant_type", "authorization_code"),
-            ("redirect_uri", &*oauth_config.client().redirect_url),
+            ("redirect_uri", oauth_config.client().redirect_url()),
         ])
         .send()
         .await?
@@ -138,8 +138,8 @@ fn create_oauth_code_request_url(
     authz_url
         .query_pairs_mut()
         .clear()
-        .append_pair("client_id", &config.client().client_id)
-        .append_pair("redirect_uri", &config.client().redirect_url)
+        .append_pair("client_id", config.client().client_id())
+        .append_pair("redirect_uri", config.client().redirect_url())
         .append_pair("scopes", &scopes)
         .append_pair("response_type", "code")
         .append_pair("state", state);
@@ -164,8 +164,8 @@ pub async fn refresh_oauth_token(
         .query(&[
             ("grant_type", "refresh_token"),
             ("refresh_token", refresh_token),
-            ("client_id", &*oauth_config.client().client_id),
-            ("client_secret", &*oauth_config.client().client_secret),
+            ("client_id", oauth_config.client().client_id()),
+            ("client_secret", oauth_config.client().client_secret()),
         ])
         .send()
         .await?

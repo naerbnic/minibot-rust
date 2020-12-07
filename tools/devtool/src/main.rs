@@ -101,9 +101,9 @@ fn main() {
                 cmd.current_dir(&arguments.script_home)
                     .env("RUST_LOG", "INFO")
                     .env("MINIBOT_SERVER_ADDR", &config.minibot.address)
-                    .env("MINIBOT_CLIENT_ID", &twitch.client.client_id)
-                    .env("MINIBOT_CLIENT_SECRET", &twitch.client.client_secret)
-                    .env("MINIBOT_REDIRECT_URL", &twitch.client.redirect_url)
+                    .env("MINIBOT_CLIENT_ID", twitch.client.client_id())
+                    .env("MINIBOT_CLIENT_SECRET", twitch.client.client_secret())
+                    .env("MINIBOT_REDIRECT_URL", twitch.client.redirect_url())
                     .env(
                         "MINIBOT_TWITCH_CLIENT",
                         &minibot_config::fmt::to_string(&twitch.client).unwrap(),
