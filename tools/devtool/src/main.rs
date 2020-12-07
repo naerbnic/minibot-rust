@@ -1,4 +1,3 @@
-
 mod migrations;
 
 use std::borrow::Cow;
@@ -6,8 +5,6 @@ use std::ffi::OsString;
 use std::process::Command;
 use std::thread::{spawn, JoinHandle};
 use structopt::StructOpt;
-
-use minibot_config as config;
 
 #[derive(StructOpt)]
 #[structopt(about = "Tool for initializing and running a dev environment")]
@@ -68,7 +65,7 @@ fn spawn_cargo_run_server<'a>(
     spawn_server(cmd)
 }
 
-fn pgsql_connection_url(pg: &config::Postgres) -> String {
+fn pgsql_connection_url(pg: &minibot_config::Postgres) -> String {
     format!(
         "postgres://{username}:{password}@{hostname}:{port}/{db_name}",
         username = pg.client_user.username,
@@ -84,7 +81,7 @@ fn main() {
 
     let basedirs = xdg::BaseDirectories::with_prefix("minibot-server").unwrap();
 
-    let config: config::ConfigFile = toml::from_slice(
+    let config: minibot_config::ConfigFile = toml::from_slice(
         &std::fs::read(
             basedirs
                 .find_config_file("dev-config.toml")
@@ -106,7 +103,11 @@ fn main() {
                     .env("MINIBOT_SERVER_ADDR", &config.minibot.address)
                     .env("MINIBOT_CLIENT_ID", &twitch.client.client_id)
                     .env("MINIBOT_CLIENT_SECRET", &twitch.client.client_secret)
-                    .env("MINIBOT_REDIRECT_URL", &twitch.client.redirect_url);
+                    .env("MINIBOT_REDIRECT_URL", &twitch.client.redirect_url)
+                    .env(
+                        "MINIBOT_TWITCH_CLIENT",
+                        &minibot_config::fmt::to_string(&twitch.client).unwrap(),
+                    );
             });
 
             server_thread.join().unwrap();
@@ -138,12 +139,10 @@ fn main() {
             });
         }
 
-        DevCommand::PgSql => {
-            run_command("psql", |cmd| {
-                let pg = &config.postgres;
-                cmd.arg(&pgsql_connection_url(pg));
-            })
-        }
+        DevCommand::PgSql => run_command("psql", |cmd| {
+            let pg = &config.postgres;
+            cmd.arg(&pgsql_connection_url(pg));
+        }),
 
         DevCommand::ApplyMigrations => {
             migrations::apply_migrations(&pgsql_connection_url(&config.postgres))

@@ -1519,7 +1519,10 @@ dependencies = [
 name = "minibot-config"
 version = "0.1.0"
 dependencies = [
+ "base64 0.13.0",
+ "rmp-serde",
  "serde",
+ "thiserror",
 ]
 
 [[package]]
@@ -1603,6 +1606,7 @@ dependencies = [
  "log",
  "mime",
  "minibot-common",
+ "minibot-config",
  "rand 0.7.3",
  "reqwest",
  "serde",
@@ -2400,6 +2404,27 @@ dependencies = [
  "untrusted",
  "web-sys",
  "winapi 0.3.9",
+]
+
+[[package]]
+name = "rmp"
+version = "0.8.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f10b46df14cf1ee1ac7baa4d2fbc2c52c0622a4b82fa8740e37bc452ac0184f"
+dependencies = [
+ "byteorder",
+ "num-traits",
+]
+
+[[package]]
+name = "rmp-serde"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2657c5ae22d7d73f8cebfa8bf69c851fb3aa4ba3fb09e59b87de88bd18ecbe01"
+dependencies = [
+ "byteorder",
+ "rmp",
+ "serde",
 ]
 
 [[package]]
