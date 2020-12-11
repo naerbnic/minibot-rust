@@ -3,7 +3,10 @@
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error(transparent)]
-    PostgresError(#[from] tokio_postgres::Error),
+    PostgresError(#[from] postgres::Error),
+
+    #[error(transparent)]
+    R2D2(#[from] r2d2::Error),
 
     #[error(transparent)]
     IoError(#[from] std::io::Error),

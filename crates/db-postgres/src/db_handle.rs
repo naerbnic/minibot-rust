@@ -1,108 +1,124 @@
-use crate::{Error, Result};
-use bb8::{Pool, PooledConnection};
-use bb8_postgres::PostgresConnectionManager;
-use futures::prelude::*;
-use tokio_postgres::{NoTls, Transaction};
-
-#[derive(Clone)]
-pub struct DbHandle(Pool<PostgresConnectionManager<NoTls>>);
+use crate::Result as DbResult;
+use postgres::{Client, Transaction};
+use r2d2::{Pool, PooledConnection};
+use r2d2_postgres::{postgres::NoTls, PostgresConnectionManager};
 
 pub trait SavedStatement: 'static {
     fn stmt() -> &'static str;
 }
 
-trait TransactionFunc<'a, T> {
-    type Fut: Future<Output = Result<T>> + 'a;
 
-    fn call(self, tx: Transaction<'a>) -> Self::Fut;
-}
+pub struct DbHandleGuard(PooledConnection<PostgresConnectionManager<NoTls>>);
 
-impl<'a, T, F, Fut> TransactionFunc<'a, T> for F
-where
-    F: FnOnce(Transaction<'a>) -> Fut,
-    Fut: Future<Output = Result<T>> + 'a,
-{
-    type Fut = Fut;
+impl DbHandleGuard {
+    pub fn transaction(&mut self) -> Result<Transaction, postgres::Error> {
+        Ok(self.0.transaction()?)
+    }
 
-    fn call(self, tx: Transaction<'a>) -> Self::Fut {
-        self(tx)
+    pub fn with_tx<F, T, E>(&mut self, mut func: F) -> Result<T, E>
+    where
+        F: FnMut(&mut Transaction) -> Result<T, E>,
+        E: From<postgres::Error> + Send + 'static,
+    {
+        loop {
+            let mut tx = self.transaction()?;
+            match func(&mut tx) {
+                Ok(val) => {
+                    if let Err(err) = tx.commit() {
+                        if let Some(code) = err.code() {
+                            if code == &postgres::error::SqlState::T_R_SERIALIZATION_FAILURE {
+                                continue;
+                            }
+                        }
+                        return Err(err.into());
+                    }
+                    return Ok(val);
+                }
+                Err(err) => {
+                    tx.rollback()?;
+                    return Err(err);
+                }
+            }
+        }
     }
 }
 
-pub struct DbHandleGuard<'a>(PooledConnection<'a, PostgresConnectionManager<NoTls>>);
+impl<'a> std::ops::Deref for DbHandleGuard {
+    type Target = Client;
 
-impl DbHandleGuard<'_> {
-    pub async fn transaction<'a>(&'a mut self) -> Result<Transaction<'a>> {
-        Ok(self.0.transaction().await?)
+    fn deref(&self) -> &Self::Target {
+        &*self.0
     }
 }
+
+impl<'a> std::ops::DerefMut for DbHandleGuard {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut *self.0
+    }
+}
+
+#[derive(Clone)]
+pub struct DbHandle(Pool<PostgresConnectionManager<NoTls>>);
 
 impl DbHandle {
-    pub async fn new(url: String) -> Result<Self> {
-        let pool = Pool::builder()
-            .build(PostgresConnectionManager::new_from_stringlike(url, NoTls)?)
-            .await?;
+    pub fn new(url: String) -> DbResult<Self> {
+        let pool = Pool::new(PostgresConnectionManager::new(url.parse()?, NoTls))?;
         Ok(DbHandle(pool))
     }
 
-    pub async fn with_test<F, Fut>(url: String, test: F) -> Result<()>
+    pub async fn with_tx<T, E, F>(&self, func: F) -> std::result::Result<T, E>
     where
-        F: FnOnce(DbHandle) -> Fut,
-        Fut: std::future::Future<Output = Result<()>>,
+        F: FnMut(&mut Transaction) -> std::result::Result<T, E> + Send + 'static,
+        T: Send + 'static,
+        E: From<r2d2::Error> + From<postgres::Error> + Send + 'static,
     {
-        let handle = DbHandle::new(url).await?;
+        let handle = self.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut guard = handle.get()?;
+            guard.with_tx(func)
+        })
+        .await
+        .unwrap()
+    }
+
+    pub fn with_test<F, Fut>(url: String, test: F) -> DbResult<()>
+    where
+        F: FnOnce(&mut DbHandleGuard) -> DbResult<()>,
+    {
+        let handle = DbHandle::new(url)?;
+
+        let mut guard = handle.get()?;
 
         println!("Got handle.");
         {
-            let mut guard = handle.get().await?;
-            let tx = guard.transaction().await?;
+            let mut tx = guard.transaction()?;
             tx.batch_execute(
                 r#"
                     CREATE SCHEMA test;
                     SET search_path TO test;
                 "#,
-            )
-            .await?;
-            tx.commit().await?;
+            )?;
+            tx.commit()?;
         }
 
-        let result = test(handle.clone()).await;
+        let result = test(&mut guard);
 
         {
-            let mut guard = handle.get().await?;
-            let tx = guard.transaction().await?;
+            let mut guard = handle.get()?;
+            let mut tx = guard.transaction()?;
             tx.batch_execute(
                 r#"
                     SET search_path TO public;
                     DROP SCHEMA test CASCADE;
                 "#,
-            )
-            .await?;
-            tx.commit().await?;
+            )?;
+            tx.commit()?;
         }
         result
     }
 
-    pub async fn get<'a>(&'a self) -> Result<DbHandleGuard<'a>> {
-        let conn = self.0.get().await.map_err(|e| match e {
-            bb8::RunError::User(e) => e.into(),
-            bb8::RunError::TimedOut => Error::ConnectionTimedOut,
-        })?;
+    pub fn get<'a>(&'a self) -> Result<DbHandleGuard, r2d2::Error> {
+        let conn = self.0.get()?;
         Ok(DbHandleGuard(conn))
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::DbHandle;
-
-    #[tokio::test]
-    pub async fn smoke_test() -> crate::Result<()> {
-        DbHandle::with_test(
-            "host=/tmp dbname=minibot user=minibot".to_string(),
-            |_| async move { Ok(()) },
-        )
-        .await?;
-        Ok(())
     }
 }
