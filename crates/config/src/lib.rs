@@ -6,7 +6,9 @@ use serde::{Deserialize, Serialize};
 
 macro_rules! getter {
     ($field:ident, $type:ty) => {
-        pub fn $field(&self) -> &$type { &self.$field }
+        pub fn $field(&self) -> &$type {
+            &self.$field
+        }
     };
 }
 
@@ -20,9 +22,62 @@ pub struct PostgresUser {
 pub struct Postgres {
     pub hostname: String,
     pub port: u16,
+    pub user: PostgresUser,
+    pub db_name: String,
+}
+
+impl Postgres {
+    pub fn connection_url(&self) -> String {
+        format!(
+            "postgres://{username}:{password}@{hostname}:{port}/{db_name}",
+            username = self.user.username,
+            password = self.user.password,
+            hostname = self.hostname,
+            port = self.port,
+            db_name = self.db_name,
+        )
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum PgUserType {
+    Admin,
+    Client,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum PgDbType {
+    Main,
+    Test,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct PostgresDev {
+    pub hostname: String,
+    pub port: u16,
     pub admin_user: PostgresUser,
     pub client_user: PostgresUser,
     pub db_name: String,
+    pub test_db_name: String,
+}
+
+impl PostgresDev {
+    pub fn db_config(&self, user_type: PgUserType, db_type: PgDbType) -> Postgres {
+        Postgres {
+            hostname: self.hostname.clone(),
+            port: self.port,
+            user: match user_type {
+                PgUserType::Admin => &self.admin_user,
+                PgUserType::Client => &self.client_user,
+            }
+            .clone(),
+            db_name: match db_type {
+                PgDbType::Main => &self.db_name,
+                PgDbType::Test => &self.test_db_name,
+            }
+            .clone(),
+        }
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -76,7 +131,7 @@ pub struct Minibot {
 
 #[derive(Serialize, Deserialize)]
 pub struct ConfigFile {
-    pub postgres: Postgres,
+    pub postgres: PostgresDev,
     pub rabbitmq: RabbitMq,
     pub oauth_configs: BTreeMap<String, OAuth>,
     pub minibot: Minibot,

@@ -1,5 +1,6 @@
 mod migrations;
 
+use minibot_config::{PgDbType, PgUserType};
 use std::borrow::Cow;
 use std::ffi::OsString;
 use std::process::Command;
@@ -65,7 +66,7 @@ fn spawn_cargo_run_server<'a>(
     spawn_server(cmd)
 }
 
-fn pgsql_connection_url(pg: &minibot_config::Postgres) -> String {
+fn pgsql_connection_url(pg: &minibot_config::PostgresDev) -> String {
     format!(
         "postgres://{username}:{password}@{hostname}:{port}/{db_name}",
         username = pg.client_user.username,
@@ -141,11 +142,17 @@ fn main() {
 
         DevCommand::PgSql => run_command("psql", |cmd| {
             let pg = &config.postgres;
-            cmd.arg(&pgsql_connection_url(pg));
+            cmd.arg(
+                pg.db_config(PgUserType::Client, PgDbType::Main)
+                    .connection_url(),
+            );
         }),
 
-        DevCommand::ApplyMigrations => {
-            migrations::apply_migrations(&pgsql_connection_url(&config.postgres))
-        }
+        DevCommand::ApplyMigrations => migrations::apply_migrations(
+            &config
+                .postgres
+                .db_config(PgUserType::Client, PgDbType::Main)
+                .connection_url(),
+        ),
     }
 }
