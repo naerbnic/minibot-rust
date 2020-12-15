@@ -65,7 +65,7 @@ impl<'a> std::ops::DerefMut for DbConn<'_> {
 pub struct DbHandle(Pool<PostgresConnectionManager<NoTls>>);
 
 impl DbHandle {
-    pub async fn new(url: String) -> DbResult<Self> {
+    pub async fn new(url: &str) -> DbResult<Self> {
         let pool = Pool::builder()
             .build(PostgresConnectionManager::new(url.parse()?, NoTls))
             .await?;
@@ -85,7 +85,7 @@ impl DbHandle {
     where
         F: FnOnce(&mut DbConn) -> DbResult<()>,
     {
-        let handle = DbHandle::new(url).await?;
+        let handle = DbHandle::new(&url).await?;
 
         let mut conn = handle.get().await?;
 

@@ -61,4 +61,4 @@ mod pool;
 mod queries;
 mod user;
 
-pub use pool::DbHandle;
+pub use pool::{DbHandle, DbConn};

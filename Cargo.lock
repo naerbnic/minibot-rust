@@ -145,6 +145,19 @@ checksum = "904dfeac50f3cdaba28fc6f57fdcddb75f49ed61346676a78c4ffe55877802fd"
 
 [[package]]
 name = "bb8"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "804d35abe894950daaca815da6dd9875d6e8973a3ab199d02c23e75a2dbe42e5"
+dependencies = [
+ "async-trait",
+ "futures-channel",
+ "futures-util",
+ "parking_lot",
+ "tokio 0.2.23",
+]
+
+[[package]]
+name = "bb8"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4a4d5a11ea6fe65800f3225ab57f7c28024595c99e809a0ca7eee60a8e3fa24b"
@@ -158,12 +171,24 @@ dependencies = [
 
 [[package]]
 name = "bb8-postgres"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a049b1b00b75a6204d94971b5b48c99792c8c0ff0030f5a7c56de9e15d5e03c1"
+dependencies = [
+ "async-trait",
+ "bb8 0.5.1",
+ "tokio 0.2.23",
+ "tokio-postgres 0.5.5",
+]
+
+[[package]]
+name = "bb8-postgres"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7556910cdbd798b51b16da3a93dfc4cc303b326503a8d03e830d11fe3969ae1d"
 dependencies = [
  "async-trait",
- "bb8",
+ "bb8 0.6.1",
  "tokio 0.3.5",
  "tokio-postgres 0.6.0",
 ]
@@ -462,8 +487,8 @@ dependencies = [
 name = "db-postgres-async"
 version = "0.1.0"
 dependencies = [
- "bb8",
- "bb8-postgres",
+ "bb8 0.6.1",
+ "bb8-postgres 0.6.0",
  "futures",
  "tokio 0.3.5",
  "tokio-postgres 0.6.0",
@@ -1407,14 +1432,14 @@ name = "minibot-db-postgres"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "bb8",
- "bb8-postgres",
+ "bb8 0.5.1",
+ "bb8-postgres 0.5.0",
  "chrono",
  "futures",
  "rand 0.7.3",
  "thiserror",
- "tokio 0.3.5",
- "tokio-postgres 0.6.0",
+ "tokio 0.2.23",
+ "tokio-postgres 0.5.5",
 ]
 
 [[package]]
@@ -1426,6 +1451,18 @@ dependencies = [
  "diesel_migrations",
  "libsqlite3-sys",
  "r2d2",
+ "thiserror",
+ "tokio 0.2.23",
+]
+
+[[package]]
+name = "minibot-db-testing"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "minibot-db-postgres",
+ "nix",
+ "tempdir",
  "thiserror",
  "tokio 0.2.23",
 ]
@@ -1619,6 +1656,18 @@ dependencies = [
  "cfg-if 0.1.10",
  "libc",
  "winapi 0.3.9",
+]
+
+[[package]]
+name = "nix"
+version = "0.19.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b2ccba0cfe4fdf15982d1674c69b1fd80bad427d293849982668dfe454bd61f2"
+dependencies = [
+ "bitflags",
+ "cc",
+ "cfg-if 1.0.0",
+ "libc",
 ]
 
 [[package]]
@@ -1958,6 +2007,19 @@ dependencies = [
  "log",
  "parking_lot",
  "scheduled-thread-pool",
+]
+
+[[package]]
+name = "rand"
+version = "0.4.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "552840b97013b1a26992c11eac34bdd778e464601a4c2054b5f0bff7c6761293"
+dependencies = [
+ "fuchsia-cprng",
+ "libc",
+ "rand_core 0.3.1",
+ "rdrand",
+ "winapi 0.3.9",
 ]
 
 [[package]]
@@ -2726,6 +2788,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tempdir"
+version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15f2b5fb00ccdf689e0149d1b1b3c03fead81c2b37735d812fa8bddbbf41b6d8"
+dependencies = [
+ "rand 0.4.6",
+ "remove_dir_all",
+]
+
+[[package]]
 name = "tempfile"
 version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2867,6 +2939,7 @@ dependencies = [
  "mio-named-pipes",
  "mio-uds",
  "num_cpus",
+ "parking_lot",
  "pin-project-lite 0.1.11",
  "signal-hook-registry",
  "slab",
