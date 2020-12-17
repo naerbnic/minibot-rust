@@ -66,17 +66,6 @@ fn spawn_cargo_run_server<'a>(
     spawn_server(cmd)
 }
 
-fn pgsql_connection_url(pg: &minibot_config::PostgresDev) -> String {
-    format!(
-        "postgres://{username}:{password}@{hostname}:{port}/{db_name}",
-        username = pg.client_user.username,
-        password = pg.client_user.password,
-        hostname = pg.hostname,
-        port = pg.port,
-        db_name = pg.db_name,
-    )
-}
-
 fn main() {
     env_logger::init();
 
