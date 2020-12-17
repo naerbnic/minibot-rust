@@ -1,7 +1,15 @@
+pub mod docker;
+
 use nix::sys::signal::kill;
-use std::convert::TryInto;
-use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
+use std::time::{Duration, Instant};
+use std::{convert::TryInto, path::Path};
+use std::{
+    io::{self, prelude::*},
+    thread::{sleep, spawn},
+};
+
+use regex::Regex;
 
 use tempdir::TempDir;
 
@@ -13,13 +21,65 @@ pub enum Error {
     Db(#[from] minibot_db_postgres::Error),
 }
 
+fn read_container_id(deadline: Instant, path: &Path) -> io::Result<String> {
+    loop {
+        if Instant::now() > deadline {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "Unable to open file before deadline.",
+            ));
+        }
+
+        match std::fs::read_to_string(path) {
+            Ok(str) => {
+                if str.len() == 64 {
+                    return Ok(str);
+                }
+            }
+            Err(e) => {
+                if !matches!(e.kind(), io::ErrorKind::NotFound) {
+                    return Err(e);
+                }
+            }
+        }
+
+        sleep(Duration::from_millis(100));
+    }
+}
+
+fn get_docker_port(id: &str, expected_inner_port: u16) -> anyhow::Result<u16> {
+    let output = Command::new("docker").arg("port").arg(id).output()?;
+
+    anyhow::ensure!(
+        output.status.success(),
+        "docker port command failed: {:?}",
+        output.status
+    );
+
+    let port_re = Regex::new(r"^(\d+)/([[:alpha:]]+) -> ([^:]+):(\d+)$").unwrap();
+
+    for line in std::str::from_utf8(&output.stdout).unwrap().lines() {
+        let cap = port_re.captures(line).unwrap();
+        let inner_port: u16 = cap[1].parse()?;
+        let _protocol = &cap[2];
+        let _ext_hostname = &cap[3];
+        let ext_port: u16 = cap[4].parse()?;
+
+        if inner_port == expected_inner_port {
+            return Ok(ext_port);
+        }
+    }
+
+    anyhow::bail!(
+        "Could not find docker binding for port {}",
+        expected_inner_port
+    );
+}
+
 pub struct TestDb {
-    // Kept for RAII killing of the database process
-    #[allow(dead_code)]
-    tmp_dir: TempDir,
-    uds_dir: PathBuf,
+    port: u16,
     password: Option<String>,
-    postgres_process: Child,
+    process: Child,
 }
 
 impl TestDb {
@@ -29,79 +89,54 @@ impl TestDb {
         let gid = nix::unistd::getegid();
         nix::unistd::chown(tmp_dir.path(), Some(uid), Some(gid)).unwrap();
 
-        let data_dir = tmp_dir.path().join("data");
-        std::fs::create_dir(&data_dir)?;
-        let uds_dir = tmp_dir.path().join("sock");
-        std::fs::create_dir(&uds_dir)?;
-        let uds_path = uds_dir.join(".s.PGSQL.5432");
+        let container_id_file = tmp_dir.path().join("container_id");
 
-        let mut cmd = Command::new("docker");
-        cmd.arg("run")
+        let mut process = Command::new("docker")
+            .arg("run")
             .arg("-i")
             .arg("--rm")
             .arg("--init")
             .arg("--sig-proxy=true")
-            .args(&[
-                "--user",
-                &format!("{}:{}", dbg!(uid.as_raw()), dbg!(gid.as_raw())),
-            ])
+            .args(&["-p", "127.0.0.1::5432"])
             .args(&["-e", "POSTGRES_PASSWORD=postgres"])
-            .args(&[
-                "-v",
-                &format!(
-                    "{}:/var/lib/postgresql/data:rw",
-                    &data_dir.to_string_lossy()
-                ),
-            ])
-            .args(&[
-                "-v",
-                &format!("{}:/var/lib/postgresql/sock:rw", &uds_dir.to_string_lossy()),
-            ])
+            .args(&["--cidfile", container_id_file.to_str().unwrap()])
             .arg("postgres:13")
-            .args(&["-h", ""])
-            .args(&["-k", "/var/lib/postgresql/sock"])
             .stdin(Stdio::null())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit());
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()?;
 
-        dbg!(&cmd);
+        let stdout = process.stdout.take().unwrap();
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
 
-        let postgres_process = cmd.spawn()?;
+        spawn(move || {
+            let mut sender = Some(sender);
+            let stdout = io::BufReader::new(stdout);
+            for line in stdout.lines() {
+                let line = line?;
+                if line.contains("ready for start up.") && sender.is_some() {
+                    sender.take().unwrap().send(()).unwrap();
+                }
+            }
 
-        eprintln!("PID: {}", postgres_process.id());
+            Ok::<_, anyhow::Error>(())
+        });
+
+        let deadline = Instant::now() + Duration::from_secs(30);
 
         // Wait for the database to be ready
 
-        //std::thread::sleep(std::time::Duration::from_secs(5));
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let container_id = read_container_id(deadline, &container_id_file)?;
+        let ext_port = get_docker_port(&container_id, 5432)?;
 
-        let success = loop {
-            if std::time::Instant::now() >= deadline {
-                break false;
-            }
-            if dbg!(&uds_path).exists() {
-                break true;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        };
+        receiver.recv().unwrap();
 
-        if !success {
-            eprintln!("Unable to connect to socket.");
-            kill(
-                nix::unistd::Pid::from_raw(postgres_process.id().try_into().unwrap()),
-                nix::sys::signal::Signal::SIGTERM,
-            )
-            .unwrap();
-            anyhow::bail!("Unable to connect to database.");
-        } else {
-            eprintln!("Discovered socket.");
-        }
+        log::info!("Database started at port {}", ext_port);
 
         Ok(TestDb {
-            tmp_dir,
-            uds_dir,
+            port: ext_port,
             password: Some("postgres".to_string()),
-            postgres_process,
+            process,
         })
     }
 
@@ -109,29 +144,31 @@ impl TestDb {
         let url = match &self.password {
             Some(password) => {
                 format!(
-                    "postgres:///postgres?host={uds_dir}&user=postgres&password={password}",
-                    uds_dir = self.uds_dir.to_string_lossy(),
+                    "postgres://postgres:{password}@127.0.0.1:{port}/postgres",
                     password = password,
+                    port = self.port,
                 )
             }
             None => {
                 format!(
-                    "postgres:///postgres?host={uds_dir}&user=postgres",
-                    uds_dir = self.uds_dir.to_string_lossy(),
+                    "postgres://postgres@127.0.0.1:{port}/postgres",
+                    port = self.port,
                 )
             }
         };
-        Ok(DbHandle::new(dbg!(&url)).await?)
+        Ok(DbHandle::new(&url).await?)
     }
 }
 
 impl Drop for TestDb {
     fn drop(&mut self) {
+        // Sending SIGINT to postgres causes fast shutdown mode. Using SIGTERM is insufficient, as
+        // the DbHandle may not have been dropped, and a pending connection may still be open.
         kill(
-            nix::unistd::Pid::from_raw(self.postgres_process.id().try_into().unwrap()),
-            nix::sys::signal::Signal::SIGTERM,
+            nix::unistd::Pid::from_raw(self.process.id().try_into().unwrap()),
+            nix::sys::signal::Signal::SIGINT,
         )
         .unwrap();
-        self.postgres_process.wait().unwrap();
+        self.process.wait().unwrap();
     }
 }

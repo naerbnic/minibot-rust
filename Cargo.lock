@@ -1460,8 +1460,10 @@ name = "minibot-db-testing"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "log",
  "minibot-db-postgres",
  "nix",
+ "regex",
  "tempdir",
  "thiserror",
  "tokio 0.2.23",

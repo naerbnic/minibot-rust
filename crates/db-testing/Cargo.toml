@@ -8,8 +8,10 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1.0.35"
+log = "0.4.11"
 minibot-db-postgres = { path = "../db-postgres" }
 nix = "0.19.1"
+regex = "1.4.2"
 tempdir = "0.3.7"
 thiserror = "1.0.22"
 

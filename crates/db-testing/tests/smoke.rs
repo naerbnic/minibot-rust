@@ -6,9 +6,9 @@ async fn main() -> anyhow::Result<()> {
 
     let handle = db.handle().await?;
 
-    let _conn = handle.get().await?;
+    let conn = handle.get().await?;
 
-    eprintln!("Got connection!");
+    drop(conn);
 
     Ok(())
 }
