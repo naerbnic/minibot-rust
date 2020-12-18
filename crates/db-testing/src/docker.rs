@@ -1,9 +1,10 @@
 use std::{
     collections::BTreeMap,
+    ffi::{OsStr, OsString},
     io::{self, BufRead},
     net::IpAddr,
     path::Path,
-    process::{Child, Command, Stdio},
+    process::{Child, Command, Output, Stdio},
     thread::{sleep, JoinHandle},
     time::{Duration, Instant},
 };
@@ -81,6 +82,24 @@ impl PortMapping {
     }
 }
 
+#[derive(Clone)]
+struct Mount {
+    destination: String,
+    read_only: bool,
+    source: String,
+}
+
+impl Mount {
+    fn as_mount(&self) -> String {
+        format!(
+            "type=volume,destination={dest},source={source}{ro}",
+            dest = self.destination,
+            source = self.source,
+            ro = if self.read_only { ",readonly" } else { "" }
+        )
+    }
+}
+
 trait LineReaderFunc: Send {
     fn clone_func(&self) -> Box<dyn LineReaderFunc>;
     fn call(&mut self, line: &str);
@@ -101,20 +120,11 @@ where
 
 enum StdIoHandlerInner {
     DropData,
-    LineReader(Box<dyn LineReaderFunc>),
-}
-
-impl Clone for StdIoHandlerInner {
-    fn clone(&self) -> Self {
-        match self {
-            StdIoHandlerInner::DropData => StdIoHandlerInner::DropData,
-            StdIoHandlerInner::LineReader(func) => StdIoHandlerInner::LineReader(func.clone_func()),
-        }
-    }
+    LineReader(Box<dyn FnMut(&str) + Send + 'static>),
 }
 
 impl StdIoHandlerInner {
-    fn handle_stream(&mut self, mut stream: impl io::Read) -> io::Result<()> {
+    fn handle_stream(self, mut stream: impl io::Read) -> io::Result<()> {
         match self {
             StdIoHandlerInner::DropData => {
                 let mut buffer = [0u8; 32 * 1024];
@@ -125,11 +135,11 @@ impl StdIoHandlerInner {
                     }
                 }
             }
-            StdIoHandlerInner::LineReader(handler) => {
+            StdIoHandlerInner::LineReader(mut handler) => {
                 let stream = io::BufReader::new(stream);
                 for line in stream.lines() {
                     let line = line?;
-                    handler.call(&line);
+                    handler(&line);
                 }
                 Ok(())
             }
@@ -137,7 +147,6 @@ impl StdIoHandlerInner {
     }
 }
 
-#[derive(Clone)]
 pub struct StdIoHandler(StdIoHandlerInner);
 
 impl StdIoHandler {
@@ -147,12 +156,12 @@ impl StdIoHandler {
 
     pub fn new_line_func<F>(func: F) -> Self
     where
-        F: FnMut(&str) + Clone + Send + 'static,
+        F: FnMut(&str) + Send + 'static,
     {
         StdIoHandler(StdIoHandlerInner::LineReader(Box::new(func)))
     }
 
-    fn handle_stream(&mut self, stream: impl io::Read) -> io::Result<()> {
+    fn handle_stream(self, stream: impl io::Read) -> io::Result<()> {
         self.0.handle_stream(stream)
     }
 }
@@ -178,10 +187,10 @@ impl Signal {
     }
 }
 
-#[derive(Clone)]
 pub struct ProcessBuilder {
     image: String,
     ports: Vec<PortMapping>,
+    mounts: Vec<Mount>,
     args: Vec<String>,
     env: BTreeMap<String, String>,
     stdout: StdIoHandler,
@@ -194,6 +203,7 @@ impl ProcessBuilder {
         ProcessBuilder {
             image: image.into().into_owned(),
             ports: Vec::new(),
+            mounts: Vec::new(),
             args: Vec::new(),
             env: BTreeMap::new(),
             stdout: StdIoHandler::new_drop_data(),
@@ -202,7 +212,13 @@ impl ProcessBuilder {
         }
     }
 
-    pub fn port(&mut self, internal_port: u16, protocol: PortProtocol, interface: IpAddr, external_port: Option<u16>) -> &mut Self {
+    pub fn port(
+        &mut self,
+        internal_port: u16,
+        protocol: PortProtocol,
+        interface: IpAddr,
+        external_port: Option<u16>,
+    ) -> &mut Self {
         self.ports.push(PortMapping {
             internal_port,
             protocol,
@@ -212,7 +228,23 @@ impl ProcessBuilder {
         self
     }
 
-    pub fn start(&self) -> Result<Process, Error> {
+    pub fn volume(&mut self, source: &str, destination: &str, read_only: bool) -> &mut Self {
+        self.mounts.push(Mount {
+            destination: destination.to_string(),
+            read_only: read_only,
+            source: source.to_string(),
+        });
+        self
+    }
+
+    pub fn env(&mut self, key: &str, value: &str) -> &mut Self {
+        // Check that the environment is a valid identifier
+        assert!(key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
+        self.env.insert(key.to_string(), value.to_string());
+        self
+    }
+
+    pub fn start(&mut self) -> Result<Process, Error> {
         let tmp_dir = TempDir::new("db")?;
         let container_id_file = tmp_dir.path().join("container_id");
         let mut cmd = Command::new("docker");
@@ -243,6 +275,10 @@ impl ProcessBuilder {
             cmd.args(&["-p", &port.as_arg()]);
         }
 
+        for mount in &self.mounts {
+            cmd.args(&["--mount", &mount.as_mount()]);
+        }
+
         for (k, v) in &self.env {
             cmd.args(&["-e", &format!("{key}={value}", key = k, value = v)]);
         }
@@ -259,14 +295,14 @@ impl ProcessBuilder {
         let stderr = process.stdout.take().expect("stderr was piped");
 
         let stdout_thread = std::thread::spawn({
-            let mut stdout_handler = self.stdout.clone();
+            let stdout_handler = std::mem::replace(&mut self.stdout, StdIoHandler::new_drop_data());
             move || {
                 stdout_handler.handle_stream(stdout).unwrap();
             }
         });
 
         let stderr_thread = std::thread::spawn({
-            let mut stderr_handler = self.stderr.clone();
+            let stderr_handler = std::mem::replace(&mut self.stderr, StdIoHandler::new_drop_data());
             move || {
                 stderr_handler.handle_stream(stderr).unwrap();
             }
@@ -294,11 +330,19 @@ pub struct Process {
 }
 
 impl Process {
-
+    pub fn exit(mut self) -> io::Result<()> {
+        self.inner_exit()
+    }
 }
 
 /// Inner helpers
 impl Process {
+    fn run_docker_command(&self, args: &[impl AsRef<OsStr>]) -> io::Result<Output> {
+        let mut cmd = Command::new("docker");
+        cmd.args(args);
+        cmd.output()
+    }
+
     fn inner_exit(&mut self) -> io::Result<()> {
         if let Some(mut process) = self.process.take() {
             Command::new("docker")
@@ -324,10 +368,6 @@ impl Drop for Process {
     }
 }
 
-pub struct PortBinding {
-    
-}
+pub struct PortBinding {}
 
-pub struct ExecCommand {
-
-}
+pub struct ExecCommand {}
