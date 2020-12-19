@@ -50,10 +50,10 @@ pub enum PortProtocol {
 }
 
 impl PortProtocol {
-    fn as_str(&self) -> &'static str {
+    fn as_str(&self) -> &'static OsStr {
         match self {
-            PortProtocol::Tcp => "tcp",
-            PortProtocol::Udp => "udp",
+            PortProtocol::Tcp => "tcp".as_ref(),
+            PortProtocol::Udp => "udp".as_ref(),
         }
     }
 }
@@ -67,54 +67,38 @@ struct PortMapping {
 }
 
 impl PortMapping {
-    pub fn as_arg(&self) -> String {
-        format!(
-            "{addr}:{external_port}:{internal_port}/{port_protocol}",
-            addr = self.interface,
-            external_port = if let Some(port) = self.external_port {
-                format!("{}", port)
-            } else {
-                "".to_string()
-            },
-            internal_port = self.internal_port,
-            port_protocol = self.protocol.as_str(),
-        )
+    pub fn as_arg(&self) -> OsString {
+        let mut arg = OsString::new();
+        arg.push(format!("{}", self.interface));
+        arg.push(":");
+        if let Some(port) = self.external_port {
+            arg.push(format!("{}", port));
+        }
+        arg.push(":");
+        arg.push(format!("{}", self.internal_port));
+        arg.push(self.protocol.as_str());
+        arg
     }
 }
 
 #[derive(Clone)]
 struct Mount {
-    destination: String,
+    destination: OsString,
     read_only: bool,
-    source: String,
+    source: OsString,
 }
 
 impl Mount {
-    fn as_mount(&self) -> String {
-        format!(
-            "type=volume,destination={dest},source={source}{ro}",
-            dest = self.destination,
-            source = self.source,
-            ro = if self.read_only { ",readonly" } else { "" }
-        )
-    }
-}
-
-trait LineReaderFunc: Send {
-    fn clone_func(&self) -> Box<dyn LineReaderFunc>;
-    fn call(&mut self, line: &str);
-}
-
-impl<F> LineReaderFunc for F
-where
-    F: FnMut(&str) + Clone + Send + 'static,
-{
-    fn clone_func(&self) -> Box<dyn LineReaderFunc> {
-        Box::new(self.clone())
-    }
-
-    fn call(&mut self, line: &str) {
-        self(line)
+    fn as_mount(&self) -> OsString {
+        let mut mount = OsString::new();
+        mount.push("type=volume,destination=");
+        mount.push(&self.destination);
+        mount.push(",source=");
+        mount.push(&self.source);
+        if self.read_only {
+            mount.push(",readonly");
+        }
+        mount
     }
 }
 
@@ -188,20 +172,20 @@ impl Signal {
 }
 
 pub struct ProcessBuilder {
-    image: String,
+    image: OsString,
     ports: Vec<PortMapping>,
     mounts: Vec<Mount>,
-    args: Vec<String>,
-    env: BTreeMap<String, String>,
+    args: Vec<OsString>,
+    env: BTreeMap<OsString, OsString>,
     stdout: StdIoHandler,
     stderr: StdIoHandler,
     exit_signal: Signal,
 }
 
 impl ProcessBuilder {
-    pub fn new<'a>(image: impl Into<std::borrow::Cow<'a, str>>) -> Self {
+    pub fn new<'a>(image: impl AsRef<OsStr>) -> Self {
         ProcessBuilder {
-            image: image.into().into_owned(),
+            image: image.as_ref().to_os_string(),
             ports: Vec::new(),
             mounts: Vec::new(),
             args: Vec::new(),
@@ -228,19 +212,35 @@ impl ProcessBuilder {
         self
     }
 
-    pub fn volume(&mut self, source: &str, destination: &str, read_only: bool) -> &mut Self {
+    pub fn volume(
+        &mut self,
+        source: impl AsRef<OsStr>,
+        destination: impl AsRef<OsStr>,
+        read_only: bool,
+    ) -> &mut Self {
         self.mounts.push(Mount {
-            destination: destination.to_string(),
+            destination: destination.as_ref().to_os_string(),
             read_only: read_only,
-            source: source.to_string(),
+            source: source.as_ref().to_os_string(),
         });
         self
     }
 
-    pub fn env(&mut self, key: &str, value: &str) -> &mut Self {
+    pub fn arg(&mut self, arg: impl AsRef<OsStr>) -> &mut Self {
+        self.args.push(arg.as_ref().to_os_string());
+        self
+    }
+
+    pub fn env(&mut self, key: impl AsRef<OsStr>, value: impl AsRef<OsStr>) -> &mut Self {
         // Check that the environment is a valid identifier
-        assert!(key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
-        self.env.insert(key.to_string(), value.to_string());
+        let key = key.as_ref();
+        assert!(key
+            .to_str()
+            .unwrap()
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_'));
+        self.env
+            .insert(key.to_os_string(), value.as_ref().to_os_string());
         self
     }
 
@@ -272,15 +272,19 @@ impl ProcessBuilder {
             .stderr(Stdio::piped());
 
         for port in &self.ports {
-            cmd.args(&["-p", &port.as_arg()]);
+            cmd.arg("-p").arg(&port.as_arg());
         }
 
         for mount in &self.mounts {
-            cmd.args(&["--mount", &mount.as_mount()]);
+            cmd.arg("--mount").arg(&mount.as_mount());
         }
 
         for (k, v) in &self.env {
-            cmd.args(&["-e", &format!("{key}={value}", key = k, value = v)]);
+            let mut env_arg = OsString::new();
+            env_arg.push(k);
+            env_arg.push("=");
+            env_arg.push(v);
+            cmd.arg("-e").arg(&env_arg);
         }
 
         cmd.arg(&self.image);
