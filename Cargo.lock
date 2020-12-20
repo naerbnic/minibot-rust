@@ -1460,10 +1460,13 @@ name = "minibot-db-testing"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "lazy_static",
  "log",
  "minibot-db-postgres",
  "nix",
  "regex",
+ "serde",
+ "serde_json",
  "tempdir",
  "thiserror",
  "tokio 0.2.23",

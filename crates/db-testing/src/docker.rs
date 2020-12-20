@@ -2,19 +2,23 @@ use std::{
     collections::BTreeMap,
     ffi::{OsStr, OsString},
     io::{self, BufRead},
-    net::IpAddr,
+    net::{IpAddr, Ipv4Addr},
     path::Path,
-    process::{Child, Command, Output, Stdio},
+    process::{Child, Command, ExitStatus, Output, Stdio},
     thread::{sleep, JoinHandle},
     time::{Duration, Instant},
 };
 
+use serde::{Deserialize, Serialize};
 use tempdir::TempDir;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error(transparent)]
     Io(#[from] std::io::Error),
+
+    #[error("A command failed with status: {0}")]
+    CommandFailed(ExitStatus),
 }
 
 fn read_container_id(deadline: Instant, path: &Path) -> io::Result<String> {
@@ -54,6 +58,14 @@ impl PortProtocol {
         match self {
             PortProtocol::Tcp => "tcp".as_ref(),
             PortProtocol::Udp => "udp".as_ref(),
+        }
+    }
+
+    fn from_str(protocol_str: &str) -> Self {
+        match protocol_str {
+            "tcp" => PortProtocol::Tcp,
+            "udp" => PortProtocol::Udp,
+            _ => panic!("Unknown protocol: {}", protocol_str),
         }
     }
 }
@@ -325,6 +337,58 @@ impl ProcessBuilder {
     }
 }
 
+pub struct PortBinding {
+    internal_port: u16,
+    protocol: PortProtocol,
+    interface: IpAddr,
+    external_port: u16,
+}
+
+impl PortBinding {
+    fn from_inner_binding(inner_spec: &str, host_ip_str: &str, host_port_str: &str) -> Self {
+        let parts = inner_spec.split('/').collect::<Vec<_>>();
+        assert_eq!(parts.len(), 2);
+        let internal_port_str = parts[0];
+        let protocol_str = parts[1];
+
+        let internal_port = internal_port_str
+            .parse()
+            .expect("Docker has correct format.");
+        let protocol = PortProtocol::from_str(protocol_str);
+
+        let interface: IpAddr = if host_ip_str.is_empty() {
+            Ipv4Addr::UNSPECIFIED.into()
+        } else {
+            host_ip_str.parse().unwrap()
+        };
+
+        let external_port = host_port_str.parse().unwrap();
+
+        PortBinding {
+            internal_port,
+            protocol,
+            interface,
+            external_port,
+        }
+    }
+
+    pub fn internal_port(&self) -> u16 {
+        self.internal_port
+    }
+
+    pub fn protocol(&self) -> PortProtocol {
+        self.protocol
+    }
+
+    pub fn interface(&self) -> &IpAddr {
+        &self.interface
+    }
+
+    pub fn external_port(&self) -> u16 {
+        self.external_port
+    }
+}
+
 pub struct Process {
     process: Option<Child>,
     container_id: String,
@@ -334,6 +398,45 @@ pub struct Process {
 }
 
 impl Process {
+    pub fn get_ports(&self) -> Result<Vec<PortBinding>, Error> {
+        let output = self.run_docker_command(|cmd| {
+            cmd.arg("container")
+                .arg("inspect")
+                .args(&["--format", "{{json .HostConfig.PortBindings}}"])
+                .arg(&self.container_id);
+        })?;
+
+        if !output.status.success() {
+            return Err(Error::CommandFailed(output.status.clone()));
+        }
+
+        #[derive(Deserialize)]
+        struct PortBindingInner {
+            host_ip: String,
+            host_port: String,
+        }
+
+        let bindings =
+            serde_json::from_slice::<BTreeMap<String, Vec<PortBindingInner>>>(&output.stdout)
+                .expect("Docker should produce valid json");
+
+        Ok(bindings
+            .into_iter()
+            .flat_map(|(k, v)| {
+                v.into_iter()
+                    .map(|inner_binding| (k.clone(), inner_binding))
+                    .collect::<Vec<_>>()
+            })
+            .map(|(k, inner_binding)| {
+                PortBinding::from_inner_binding(
+                    &k,
+                    &inner_binding.host_ip,
+                    &inner_binding.host_port,
+                )
+            })
+            .collect())
+    }
+    
     pub fn exit(mut self) -> io::Result<()> {
         self.inner_exit()
     }
@@ -341,10 +444,16 @@ impl Process {
 
 /// Inner helpers
 impl Process {
-    fn run_docker_command(&self, args: &[impl AsRef<OsStr>]) -> io::Result<Output> {
+    fn run_docker_command<F>(&self, config_func: F) -> io::Result<Output>
+    where
+        F: FnOnce(&mut Command),
+    {
         let mut cmd = Command::new("docker");
-        cmd.args(args);
-        cmd.output()
+        config_func(&mut cmd);
+        cmd.stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
     }
 
     fn inner_exit(&mut self) -> io::Result<()> {
@@ -371,7 +480,5 @@ impl Drop for Process {
         let _ = self.inner_exit();
     }
 }
-
-pub struct PortBinding {}
 
 pub struct ExecCommand {}
