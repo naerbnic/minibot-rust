@@ -79,55 +79,44 @@ fn get_docker_port(id: &str, expected_inner_port: u16) -> anyhow::Result<u16> {
 pub struct TestDb {
     port: u16,
     password: Option<String>,
-    process: Child,
+    process: docker::Process,
 }
 
 impl TestDb {
     pub fn new_docker() -> anyhow::Result<Self> {
-        let tmp_dir = TempDir::new("db")?;
-        let uid = nix::unistd::geteuid();
-        let gid = nix::unistd::getegid();
-        nix::unistd::chown(tmp_dir.path(), Some(uid), Some(gid)).unwrap();
-
-        let container_id_file = tmp_dir.path().join("container_id");
-
-        let mut process = Command::new("docker")
-            .arg("run")
-            .arg("-i")
-            .arg("--rm")
-            .arg("--init")
-            .arg("--sig-proxy=true")
-            .args(&["-p", "127.0.0.1::5432"])
-            .args(&["-e", "POSTGRES_PASSWORD=postgres"])
-            .args(&["--cidfile", container_id_file.to_str().unwrap()])
-            .arg("postgres:13")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()?;
-
-        let stdout = process.stdout.take().unwrap();
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
 
-        spawn(move || {
-            let mut sender = Some(sender);
-            let stdout = io::BufReader::new(stdout);
-            for line in stdout.lines() {
-                let line = line?;
-                if line.contains("ready for start up.") && sender.is_some() {
-                    sender.take().unwrap().send(()).unwrap();
+        let process = docker::ProcessBuilder::new("postgres:13")
+            .port(
+                5432,
+                docker::PortProtocol::Tcp,
+                std::net::Ipv4Addr::LOCALHOST.into(),
+                None,
+            )
+            .env("POSTGRES_PASSWORD", "postgres")
+            .stdout(docker::StdIoHandler::new_line_func({
+                let mut sender = Some(sender);
+                move |line| {
+                    if line.contains("ready for start up.") && sender.is_some() {
+                        sender.take().unwrap().send(()).unwrap();
+                    }
                 }
-            }
-
-            Ok::<_, anyhow::Error>(())
-        });
+            }))
+            .exit_signal(docker::Signal::Quit)
+            .start()?;
 
         let deadline = Instant::now() + Duration::from_secs(30);
 
         // Wait for the database to be ready
+        let mut ext_port = None;
+        for port in process.port_bindings()? {
+            if port.internal_port() == 5432 {
+                ext_port = Some(port.external_port());
+                break;
+            }
+        }
 
-        let container_id = read_container_id(deadline, &container_id_file)?;
-        let ext_port = get_docker_port(&container_id, 5432)?;
+        let ext_port = ext_port.unwrap();
 
         receiver.recv().unwrap();
 
@@ -157,18 +146,5 @@ impl TestDb {
             }
         };
         Ok(DbHandle::new(&url).await?)
-    }
-}
-
-impl Drop for TestDb {
-    fn drop(&mut self) {
-        // Sending SIGINT to postgres causes fast shutdown mode. Using SIGTERM is insufficient, as
-        // the DbHandle may not have been dropped, and a pending connection may still be open.
-        kill(
-            nix::unistd::Pid::from_raw(self.process.id().try_into().unwrap()),
-            nix::sys::signal::Signal::SIGINT,
-        )
-        .unwrap();
-        self.process.wait().unwrap();
     }
 }

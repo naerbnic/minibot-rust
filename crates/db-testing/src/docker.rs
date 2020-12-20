@@ -3,13 +3,13 @@ use std::{
     ffi::{OsStr, OsString},
     io::{self, BufRead},
     net::{IpAddr, Ipv4Addr},
-    path::Path,
+    path::{Path, PathBuf},
     process::{Child, Command, ExitStatus, Output, Stdio},
     thread::{sleep, JoinHandle},
     time::{Duration, Instant},
 };
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tempdir::TempDir;
 
 #[derive(thiserror::Error, Debug)]
@@ -88,6 +88,7 @@ impl PortMapping {
         }
         arg.push(":");
         arg.push(format!("{}", self.internal_port));
+        arg.push("/");
         arg.push(self.protocol.as_str());
         arg
     }
@@ -256,6 +257,21 @@ impl ProcessBuilder {
         self
     }
 
+    pub fn stdout(&mut self, handler: StdIoHandler) -> &mut Self {
+        self.stdout = handler;
+        self
+    }
+
+    pub fn stderr(&mut self, handler: StdIoHandler) -> &mut Self {
+        self.stderr = handler;
+        self
+    }
+
+    pub fn exit_signal(&mut self, signal: Signal) -> &mut Self {
+        self.exit_signal = signal;
+        self
+    }
+
     pub fn start(&mut self) -> Result<Process, Error> {
         let tmp_dir = TempDir::new("db")?;
         let container_id_file = tmp_dir.path().join("container_id");
@@ -308,7 +324,7 @@ impl ProcessBuilder {
         let mut process = cmd.spawn()?;
 
         let stdout = process.stdout.take().expect("stdout was piped");
-        let stderr = process.stdout.take().expect("stderr was piped");
+        let stderr = process.stderr.take().expect("stderr was piped");
 
         let stdout_thread = std::thread::spawn({
             let stdout_handler = std::mem::replace(&mut self.stdout, StdIoHandler::new_drop_data());
@@ -324,8 +340,10 @@ impl ProcessBuilder {
             }
         });
 
-        let container_id =
-            read_container_id(Instant::now() + Duration::from_secs(1), &container_id_file)?;
+        let container_id = read_container_id(
+            Instant::now() + Duration::from_secs(100),
+            &container_id_file,
+        )?;
 
         Ok(Process {
             process: Some(process),
@@ -337,6 +355,7 @@ impl ProcessBuilder {
     }
 }
 
+#[derive(Copy, Clone, Debug)]
 pub struct PortBinding {
     internal_port: u16,
     protocol: PortProtocol,
@@ -389,6 +408,14 @@ impl PortBinding {
     }
 }
 
+#[derive(Deserialize)]
+struct PortBindingInner {
+    #[serde(rename = "HostIp")]
+    host_ip: String,
+    #[serde(rename = "HostPort")]
+    host_port: String,
+}
+
 pub struct Process {
     process: Option<Child>,
     container_id: String,
@@ -398,11 +425,11 @@ pub struct Process {
 }
 
 impl Process {
-    pub fn get_ports(&self) -> Result<Vec<PortBinding>, Error> {
+    pub fn port_bindings(&self) -> Result<Vec<PortBinding>, Error> {
         let output = self.run_docker_command(|cmd| {
             cmd.arg("container")
                 .arg("inspect")
-                .args(&["--format", "{{json .HostConfig.PortBindings}}"])
+                .args(&["--format", "{{json .NetworkSettings.Ports}}"])
                 .arg(&self.container_id);
         })?;
 
@@ -410,17 +437,24 @@ impl Process {
             return Err(Error::CommandFailed(output.status.clone()));
         }
 
-        #[derive(Deserialize)]
-        struct PortBindingInner {
-            host_ip: String,
-            host_port: String,
-        }
-
         let bindings =
-            serde_json::from_slice::<BTreeMap<String, Vec<PortBindingInner>>>(&output.stdout)
+            serde_json::from_slice::<BTreeMap<String, serde_json::Value>>(&output.stdout)
                 .expect("Docker should produce valid json");
 
         Ok(bindings
+            .into_iter()
+            .filter_map(|(k, v)| {
+                if v.is_null() {
+                    None
+                } else {
+                    Some(
+                        serde_json::from_value::<Vec<PortBindingInner>>(v)
+                            .map(move |bind| (k, bind)),
+                    )
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
             .into_iter()
             .flat_map(|(k, v)| {
                 v.into_iter()
@@ -436,7 +470,17 @@ impl Process {
             })
             .collect())
     }
-    
+
+    pub fn build_exec<'a>(&'a self, command: impl AsRef<OsStr>) -> ExecBuilder<'a> {
+        ExecBuilder {
+            process: self,
+            binary: command.as_ref().to_os_string(),
+            workdir: None,
+            args: Vec::new(),
+            env: BTreeMap::new(),
+        }
+    }
+
     pub fn exit(mut self) -> io::Result<()> {
         self.inner_exit()
     }
@@ -465,6 +509,8 @@ impl Process {
                     signal = self.exit_signal.as_signal_name()
                 ))
                 .arg(&self.container_id)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
                 .status()?;
             process.wait()?;
             self.stdout_thread.take().unwrap().join().unwrap();
@@ -481,4 +527,53 @@ impl Drop for Process {
     }
 }
 
-pub struct ExecCommand {}
+pub struct ExecBuilder<'a> {
+    process: &'a Process,
+    binary: OsString,
+    workdir: Option<PathBuf>,
+    args: Vec<OsString>,
+    env: BTreeMap<OsString, OsString>,
+}
+
+impl ExecBuilder<'_> {
+    pub fn workdir(&mut self, path: impl AsRef<Path>) -> &mut Self {
+        self.workdir = Some(path.as_ref().to_path_buf());
+        self
+    }
+
+    pub fn arg(&mut self, arg: impl AsRef<OsStr>) -> &mut Self {
+        self.args.push(arg.as_ref().to_os_string());
+        self
+    }
+
+    pub fn env(&mut self, key: impl AsRef<OsStr>, value: impl AsRef<OsStr>) -> &mut Self {
+        self.env
+            .insert(key.as_ref().to_os_string(), value.as_ref().to_os_string());
+        self
+    }
+
+    pub fn exec(&mut self) -> io::Result<Output> {
+        let mut cmd = Command::new("docker");
+        cmd.arg("exec").arg("-i");
+        if let Some(workdir) = &self.workdir {
+            cmd.arg("--workdir").arg(workdir.as_os_str());
+        }
+
+        for (k, v) in &self.env {
+            let mut var = OsString::new();
+            var.push(k);
+            var.push("=");
+            var.push(v);
+            cmd.arg("-e");
+            cmd.arg(&var);
+        }
+        
+        cmd.arg(&self.process.container_id).arg(&self.binary);
+
+        for arg in &self.args {
+            cmd.arg(arg);
+        }
+
+        cmd.output()
+    }
+}
