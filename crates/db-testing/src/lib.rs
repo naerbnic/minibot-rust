@@ -1,5 +1,4 @@
-pub mod docker;
-
+use docker_process::{PortProtocol, Process, ProcessBuilder, Signal, StdIoHandler};
 use minibot_db_postgres::DbHandle;
 
 #[derive(thiserror::Error, Debug)]
@@ -11,22 +10,22 @@ pub enum Error {
 pub struct TestDb {
     port: u16,
     password: Option<String>,
-    _process: docker::Process,
+    _process: Process,
 }
 
 impl TestDb {
     pub fn new_docker() -> anyhow::Result<Self> {
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
 
-        let process = docker::ProcessBuilder::new("postgres:13")
+        let process = ProcessBuilder::new("postgres:13")
             .port(
                 5432,
-                docker::PortProtocol::Tcp,
+                PortProtocol::Tcp,
                 std::net::Ipv4Addr::LOCALHOST.into(),
                 None,
             )
             .env("POSTGRES_PASSWORD", "postgres")
-            .stdout(docker::StdIoHandler::new_line_func({
+            .stdout(StdIoHandler::new_line_func({
                 let mut sender = Some(sender);
                 move |line| {
                     if line.contains("ready for start up.") && sender.is_some() {
@@ -34,7 +33,7 @@ impl TestDb {
                     }
                 }
             }))
-            .exit_signal(docker::Signal::Quit)
+            .exit_signal(Signal::Quit)
             .start()?;
 
         // Wait for the database to be ready

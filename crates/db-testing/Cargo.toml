@@ -1,16 +1,17 @@
 [package]
-name = "minibot-db-testing"
-version = "0.1.0"
 authors = ["Brian Chin <brian.chin@gmail.com>"]
 edition = "2018"
+name = "minibot-db-testing"
+version = "0.1.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 anyhow = "1.0.35"
+docker-process = {path = "../docker-process"}
 lazy_static = "1.4.0"
 log = "0.4.11"
-minibot-db-postgres = { path = "../db-postgres" }
+minibot-db-postgres = {path = "../db-postgres"}
 nix = "0.19.1"
 regex = "1.4.2"
 serde = {version = "1.0.118", features = ["derive"]}

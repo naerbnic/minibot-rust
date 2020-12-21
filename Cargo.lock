@@ -634,6 +634,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "212d0f5754cb6769937f4501cc0e67f4f4483c8d2c3e1e922ee9edbe4ab4c7c0"
 
 [[package]]
+name = "docker-process"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempdir",
+ "thiserror",
+]
+
+[[package]]
 name = "dotenv"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1460,6 +1470,7 @@ name = "minibot-db-testing"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "docker-process",
  "lazy_static",
  "log",
  "minibot-db-postgres",

@@ -425,6 +425,11 @@ pub struct Process {
 }
 
 impl Process {
+    /// Return a list of [`PortBinding`s](PortBinding) for all ports that are bound to external
+    /// interfaces.
+    ///
+    /// This is especially useful for discovering the external port of bound ports where the
+    /// external port was not declared.
     pub fn port_bindings(&self) -> Result<Vec<PortBinding>, Error> {
         let output = self.run_docker_command(|cmd| {
             cmd.arg("container")
@@ -471,6 +476,7 @@ impl Process {
             .collect())
     }
 
+    /// Returns an [`ExecBuilder`](ExecBuilder) that will run a program within the container.
     pub fn build_exec<'a>(&'a self, command: impl AsRef<OsStr>) -> ExecBuilder<'a> {
         ExecBuilder {
             process: self,
@@ -481,6 +487,7 @@ impl Process {
         }
     }
 
+    /// Consumes and exits this container process.
     pub fn exit(mut self) -> io::Result<()> {
         self.inner_exit()
     }
@@ -536,6 +543,7 @@ pub struct ExecBuilder<'a> {
 }
 
 impl ExecBuilder<'_> {
+    /// Sets the working directory the program will be run on within the
     pub fn workdir(&mut self, path: impl AsRef<Path>) -> &mut Self {
         self.workdir = Some(path.as_ref().to_path_buf());
         self
@@ -567,7 +575,7 @@ impl ExecBuilder<'_> {
             cmd.arg("-e");
             cmd.arg(&var);
         }
-        
+
         cmd.arg(&self.process.container_id).arg(&self.binary);
 
         for arg in &self.args {
