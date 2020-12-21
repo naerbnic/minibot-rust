@@ -4,7 +4,7 @@ use std::{
     io::{self, BufRead},
     net::{IpAddr, Ipv4Addr},
     path::{Path, PathBuf},
-    process::{Child, Command, ExitStatus, Output, Stdio},
+    process::{Child, Command, ExitStatus, Output, Stdio as ProcStdio},
     thread::{sleep, JoinHandle},
     time::{Duration, Instant},
 };
@@ -144,18 +144,18 @@ impl StdIoHandlerInner {
     }
 }
 
-pub struct StdIoHandler(StdIoHandlerInner);
+pub struct Stdio(StdIoHandlerInner);
 
-impl StdIoHandler {
+impl Stdio {
     pub fn new_drop_data() -> Self {
-        StdIoHandler(StdIoHandlerInner::DropData)
+        Stdio(StdIoHandlerInner::DropData)
     }
 
     pub fn new_line_func<F>(func: F) -> Self
     where
         F: FnMut(&str) + Send + 'static,
     {
-        StdIoHandler(StdIoHandlerInner::LineReader(Box::new(func)))
+        Stdio(StdIoHandlerInner::LineReader(Box::new(func)))
     }
 
     fn handle_stream(self, stream: impl io::Read) -> io::Result<()> {
@@ -190,21 +190,21 @@ pub struct ProcessBuilder {
     mounts: Vec<Mount>,
     args: Vec<OsString>,
     env: BTreeMap<OsString, OsString>,
-    stdout: StdIoHandler,
-    stderr: StdIoHandler,
+    stdout: Stdio,
+    stderr: Stdio,
     exit_signal: Signal,
 }
 
 impl ProcessBuilder {
-    pub fn new<'a>(image: impl AsRef<OsStr>) -> Self {
+    fn new(image: impl AsRef<OsStr>) -> Self {
         ProcessBuilder {
             image: image.as_ref().to_os_string(),
             ports: Vec::new(),
             mounts: Vec::new(),
             args: Vec::new(),
             env: BTreeMap::new(),
-            stdout: StdIoHandler::new_drop_data(),
-            stderr: StdIoHandler::new_drop_data(),
+            stdout: Stdio::new_drop_data(),
+            stderr: Stdio::new_drop_data(),
             exit_signal: Signal::Kill,
         }
     }
@@ -257,12 +257,12 @@ impl ProcessBuilder {
         self
     }
 
-    pub fn stdout(&mut self, handler: StdIoHandler) -> &mut Self {
+    pub fn stdout(&mut self, handler: Stdio) -> &mut Self {
         self.stdout = handler;
         self
     }
 
-    pub fn stderr(&mut self, handler: StdIoHandler) -> &mut Self {
+    pub fn stderr(&mut self, handler: Stdio) -> &mut Self {
         self.stderr = handler;
         self
     }
@@ -293,11 +293,11 @@ impl ProcessBuilder {
             // Writes the container ID to a file, so we can further manipulate it.
             .args(&["--cidfile", container_id_file.to_str().unwrap()])
             // We assume this is a server process, so we don't use stdin here.
-            .stdin(Stdio::null())
+            .stdin(ProcStdio::null())
             // Both stdout and stderr can be useful for ready checking and error checking, so we
             // pipe them
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stdout(ProcStdio::piped())
+            .stderr(ProcStdio::piped());
 
         for port in &self.ports {
             cmd.arg("-p").arg(&port.as_arg());
@@ -327,14 +327,14 @@ impl ProcessBuilder {
         let stderr = process.stderr.take().expect("stderr was piped");
 
         let stdout_thread = std::thread::spawn({
-            let stdout_handler = std::mem::replace(&mut self.stdout, StdIoHandler::new_drop_data());
+            let stdout_handler = std::mem::replace(&mut self.stdout, Stdio::new_drop_data());
             move || {
                 stdout_handler.handle_stream(stdout).unwrap();
             }
         });
 
         let stderr_thread = std::thread::spawn({
-            let stderr_handler = std::mem::replace(&mut self.stderr, StdIoHandler::new_drop_data());
+            let stderr_handler = std::mem::replace(&mut self.stderr, Stdio::new_drop_data());
             move || {
                 stderr_handler.handle_stream(stderr).unwrap();
             }
@@ -425,6 +425,9 @@ pub struct Process {
 }
 
 impl Process {
+    pub fn builder(image: impl AsRef<OsStr>) -> ProcessBuilder {
+        ProcessBuilder::new(image)
+    }
     /// Return a list of [`PortBinding`s](PortBinding) for all ports that are bound to external
     /// interfaces.
     ///
@@ -501,9 +504,9 @@ impl Process {
     {
         let mut cmd = Command::new("docker");
         config_func(&mut cmd);
-        cmd.stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+        cmd.stdin(ProcStdio::null())
+            .stdout(ProcStdio::piped())
+            .stderr(ProcStdio::piped())
             .output()
     }
 
@@ -516,8 +519,8 @@ impl Process {
                     signal = self.exit_signal.as_signal_name()
                 ))
                 .arg(&self.container_id)
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
+                .stdout(ProcStdio::null())
+                .stderr(ProcStdio::null())
                 .status()?;
             process.wait()?;
             self.stdout_thread.take().unwrap().join().unwrap();
