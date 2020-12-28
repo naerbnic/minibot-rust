@@ -15,8 +15,6 @@ pub struct TestDb {
 
 impl TestDb {
     pub fn new_docker() -> anyhow::Result<Self> {
-        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-
         let process = Process::builder("postgres:13")
             .port(
                 5432,
@@ -25,14 +23,7 @@ impl TestDb {
                 None,
             )
             .env("POSTGRES_PASSWORD", "postgres")
-            .stdout(Stdio::new_line_func({
-                let mut sender = Some(sender);
-                move |line| {
-                    if line.contains("ready for start up.") && sender.is_some() {
-                        sender.take().unwrap().send(()).unwrap();
-                    }
-                }
-            }))
+            .stdout(Stdio::new_line_waiter(&["ready_for_start_up"]))
             .exit_signal(Signal::Quit)
             .start()?;
 
@@ -46,8 +37,6 @@ impl TestDb {
         }
 
         let ext_port = ext_port.unwrap();
-
-        receiver.recv().unwrap();
 
         log::info!("Database started at port {}", ext_port);
 

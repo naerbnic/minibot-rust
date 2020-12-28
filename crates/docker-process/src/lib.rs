@@ -9,6 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use pinky_swear::{Pinky, PinkySwear};
 use serde::Deserialize;
 use tempdir::TempDir;
 
@@ -118,12 +119,14 @@ impl Mount {
 enum StdIoHandlerInner {
     DropData,
     LineReader(Box<dyn FnMut(&str) + Send + 'static>),
+    LineWaiter(Vec<String>),
 }
 
 impl StdIoHandlerInner {
-    fn handle_stream(self, mut stream: impl io::Read) -> io::Result<()> {
+    fn handle_stream(self, mut stream: impl io::Read, ready: Pinky<()>) -> io::Result<()> {
         match self {
             StdIoHandlerInner::DropData => {
+                ready.swear(());
                 let mut buffer = [0u8; 32 * 1024];
                 loop {
                     let bytes_read = stream.read(&mut buffer)?;
@@ -133,10 +136,25 @@ impl StdIoHandlerInner {
                 }
             }
             StdIoHandlerInner::LineReader(mut handler) => {
+                ready.swear(());
                 let stream = io::BufReader::new(stream);
                 for line in stream.lines() {
                     let line = line?;
                     handler(&line);
+                }
+                Ok(())
+            }
+            StdIoHandlerInner::LineWaiter(lines) => {
+                let stream = io::BufReader::new(stream);
+                let mut curr_index = 0;
+                for line in stream.lines() {
+                    let line = line?;
+                    if curr_index < lines.len() && line.contains(&lines[curr_index]) {
+                        curr_index += 1;
+                        if curr_index == lines.len() {
+                            ready.swear(())
+                        }
+                    }
                 }
                 Ok(())
             }
@@ -158,8 +176,14 @@ impl Stdio {
         Stdio(StdIoHandlerInner::LineReader(Box::new(func)))
     }
 
-    fn handle_stream(self, stream: impl io::Read) -> io::Result<()> {
-        self.0.handle_stream(stream)
+    pub fn new_line_waiter(lines: impl IntoIterator<Item = impl AsRef<str>>) -> Self {
+        Stdio(StdIoHandlerInner::LineWaiter(
+            lines.into_iter().map(|i| i.as_ref().to_string()).collect(),
+        ))
+    }
+
+    fn handle_stream(self, stream: impl io::Read, ready: Pinky<()>) -> io::Result<()> {
+        self.0.handle_stream(stream, ready)
     }
 }
 
@@ -326,17 +350,20 @@ impl ProcessBuilder {
         let stdout = process.stdout.take().expect("stdout was piped");
         let stderr = process.stderr.take().expect("stderr was piped");
 
+        let (stdout_wait, stdout_ready) = PinkySwear::new();
+        let (stderr_wait, stderr_ready) = PinkySwear::new();
+
         let stdout_thread = std::thread::spawn({
             let stdout_handler = std::mem::replace(&mut self.stdout, Stdio::new_drop_data());
             move || {
-                stdout_handler.handle_stream(stdout).unwrap();
+                stdout_handler.handle_stream(stdout, stdout_ready).unwrap();
             }
         });
 
         let stderr_thread = std::thread::spawn({
             let stderr_handler = std::mem::replace(&mut self.stderr, Stdio::new_drop_data());
             move || {
-                stderr_handler.handle_stream(stderr).unwrap();
+                stderr_handler.handle_stream(stderr, stderr_ready).unwrap();
             }
         });
 
@@ -344,6 +371,9 @@ impl ProcessBuilder {
             Instant::now() + Duration::from_secs(100),
             &container_id_file,
         )?;
+
+        stdout_wait.wait();
+        stderr_wait.wait();
 
         Ok(Process {
             process: Some(process),
