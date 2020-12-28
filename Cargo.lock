@@ -640,7 +640,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fea41bba32d969b513997752735605054bc0dfa92b4c56bf1189f2e174be7a10"
 
 [[package]]
-name = "docker-process"
+name = "docker-proc"
 version = "0.1.0"
 dependencies = [
  "pinky-swear",
@@ -1486,7 +1486,7 @@ name = "minibot-db-testing"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "docker-process",
+ "docker-proc",
  "lazy_static",
  "log",
  "minibot-db-postgres",
