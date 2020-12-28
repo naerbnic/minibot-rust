@@ -1,7 +1,7 @@
 use minibot_db_testing::TestDb;
 
 #[tokio::test]
-async fn main() -> anyhow::Result<()> {
+async fn smoke_test() -> anyhow::Result<()> {
     let db = TestDb::new_docker()?;
 
     let handle = db.handle().await?;
