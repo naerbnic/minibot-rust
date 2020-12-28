@@ -23,7 +23,7 @@ impl TestDb {
                 None,
             )
             .env("POSTGRES_PASSWORD", "postgres")
-            .stdout(Stdio::new_line_waiter(&["ready_for_start_up"]))
+            .stdout(Stdio::new_line_waiter(&["ready for start up"]))
             .exit_signal(Signal::Quit)
             .start()?;
 
