@@ -1,3 +1,5 @@
+use std::net::Ipv4Addr;
+
 use docker_proc::{PortProtocol, Process, Signal, Stdio};
 use minibot_db_postgres::DbHandle;
 
@@ -16,12 +18,7 @@ pub struct TestDb {
 impl TestDb {
     pub fn new_docker() -> anyhow::Result<Self> {
         let process = Process::builder("postgres:13")
-            .port(
-                5432,
-                PortProtocol::Tcp,
-                std::net::Ipv4Addr::LOCALHOST.into(),
-                None,
-            )
+            .port(5432, PortProtocol::Tcp, Ipv4Addr::LOCALHOST.into(), None)
             .env("POSTGRES_PASSWORD", "postgres")
             .stdout(Stdio::new_line_waiter(&["ready for start up"]))
             .exit_signal(Signal::Quit)

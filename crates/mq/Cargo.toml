@@ -1,5 +1,5 @@
 [package]
-name = "db-postgres-async"
+name = "minibot-mq"
 version = "0.1.0"
 authors = ["Brian Chin <brian.chin@gmail.com>"]
 edition = "2018"
@@ -7,8 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bb8 = "0.6.1"
-bb8-postgres = "0.6.0"
 futures = "0.3.8"
-tokio = "0.3.5"
-tokio-postgres = "0.6.0"
+lapin = "1.6.6"
+thiserror = "1.0.23"
+uuid = { version = "0.8.1", features = ["v4"] }
