@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod test;
+
 use futures::stream::BoxStream;
 use futures::stream::StreamExt;
 use lapin::{

@@ -1614,6 +1614,7 @@ dependencies = [
 name = "minibot-mq"
 version = "0.1.0"
 dependencies = [
+ "docker-proc",
  "futures",
  "lapin",
  "thiserror",
