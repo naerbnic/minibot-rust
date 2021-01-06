@@ -2,7 +2,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     ffi::{OsStr, OsString},
     io::{self, BufRead},
-    net::{IpAddr, Ipv4Addr},
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
     process::{Child, Command, ExitStatus, Output, Stdio as ProcStdio},
     thread::{sleep, JoinHandle},
@@ -413,7 +413,7 @@ impl ProcessBuilder {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct PortBinding {
+struct PortBinding {
     internal_port: InternalPort,
     interface: IpAddr,
     external_port: u16,
@@ -452,14 +452,6 @@ impl PortBinding {
     fn internal_port(&self) -> InternalPort {
         self.internal_port
     }
-
-    pub fn interface(&self) -> &IpAddr {
-        &self.interface
-    }
-
-    pub fn external_port(&self) -> u16 {
-        self.external_port
-    }
 }
 
 #[derive(Deserialize)]
@@ -491,7 +483,7 @@ where
         .output()
 }
 
-pub fn get_container_port_bindings(container_id: &str) -> Result<Vec<PortBinding>, Error> {
+fn get_container_port_bindings(container_id: &str) -> Result<Vec<PortBinding>, Error> {
     let output = run_docker_command(|cmd| {
         cmd.arg("container")
             .arg("inspect")
@@ -534,8 +526,10 @@ impl Process {
         ProcessBuilder::new(image)
     }
 
-    pub fn port_address(&self, name: &str) -> Option<PortBinding> {
-        self.ports.get(name).copied()
+    pub fn port_address(&self, name: &str) -> Option<SocketAddr> {
+        self.ports
+            .get(name)
+            .map(|binding| SocketAddr::new(binding.interface, binding.external_port))
     }
 
     /// Returns an [`ExecBuilder`](ExecBuilder) that will run a program within the container.
@@ -628,7 +622,7 @@ impl ExecBuilder<'_> {
             if let Some(workdir) = &self.workdir {
                 cmd.arg("--workdir").arg(workdir.as_os_str());
             }
-    
+
             for (k, v) in &self.env {
                 let mut var = OsString::new();
                 var.push(k);
@@ -637,9 +631,9 @@ impl ExecBuilder<'_> {
                 cmd.arg("-e");
                 cmd.arg(&var);
             }
-    
+
             cmd.arg(&self.process.container_id).arg(&self.binary);
-    
+
             for arg in &self.args {
                 cmd.arg(arg);
             }
