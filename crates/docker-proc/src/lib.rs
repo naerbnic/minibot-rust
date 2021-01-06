@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     ffi::{OsStr, OsString},
     io::{self, BufRead},
     net::{IpAddr, Ipv4Addr},
@@ -48,14 +48,14 @@ fn read_container_id(deadline: Instant, path: &Path) -> io::Result<String> {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum PortProtocol {
     Tcp,
     Udp,
 }
 
 impl PortProtocol {
-    fn as_str(&self) -> &'static OsStr {
+    fn as_str(&self) -> &'static str {
         match self {
             PortProtocol::Tcp => "tcp".as_ref(),
             PortProtocol::Udp => "udp".as_ref(),
@@ -71,11 +71,22 @@ impl PortProtocol {
     }
 }
 
-#[derive(Clone)]
-struct PortMapping {
-    interface: IpAddr,
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+struct InternalPort {
     protocol: PortProtocol,
-    internal_port: u16,
+    port: u16,
+}
+
+impl InternalPort {
+    pub fn to_arg(&self) -> String {
+        format!("{}/{}", self.port, self.protocol.as_str())
+    }
+}
+
+#[derive(Copy, Clone)]
+struct PortMapping {
+    internal_port: InternalPort,
+    interface: IpAddr,
     external_port: Option<u16>,
 }
 
@@ -88,9 +99,7 @@ impl PortMapping {
             arg.push(format!("{}", port));
         }
         arg.push(":");
-        arg.push(format!("{}", self.internal_port));
-        arg.push("/");
-        arg.push(self.protocol.as_str());
+        arg.push(self.internal_port.to_arg());
         arg
     }
 }
@@ -210,7 +219,7 @@ impl Signal {
 
 pub struct ProcessBuilder {
     image: OsString,
-    ports: Vec<PortMapping>,
+    ports: HashMap<String, PortMapping>,
     mounts: Vec<Mount>,
     args: Vec<OsString>,
     env: BTreeMap<OsString, OsString>,
@@ -223,7 +232,7 @@ impl ProcessBuilder {
     fn new(image: impl AsRef<OsStr>) -> Self {
         ProcessBuilder {
             image: image.as_ref().to_os_string(),
-            ports: Vec::new(),
+            ports: HashMap::new(),
             mounts: Vec::new(),
             args: Vec::new(),
             env: BTreeMap::new(),
@@ -235,17 +244,23 @@ impl ProcessBuilder {
 
     pub fn port(
         &mut self,
+        name: &str,
         internal_port: u16,
         protocol: PortProtocol,
         interface: IpAddr,
         external_port: Option<u16>,
     ) -> &mut Self {
-        self.ports.push(PortMapping {
-            internal_port,
-            protocol,
-            interface,
-            external_port,
-        });
+        self.ports.insert(
+            name.to_string(),
+            PortMapping {
+                internal_port: InternalPort {
+                    port: internal_port,
+                    protocol,
+                },
+                interface,
+                external_port,
+            },
+        );
         self
     }
 
@@ -323,8 +338,8 @@ impl ProcessBuilder {
             .stdout(ProcStdio::piped())
             .stderr(ProcStdio::piped());
 
-        for port in &self.ports {
-            cmd.arg("-p").arg(&port.as_arg());
+        for (_, mapping) in &self.ports {
+            cmd.arg("-p").arg(&mapping.as_arg());
         }
 
         for mount in &self.mounts {
@@ -375,11 +390,23 @@ impl ProcessBuilder {
         stdout_wait.wait();
         stderr_wait.wait();
 
+        let port_to_names: HashMap<InternalPort, String> = self
+            .ports
+            .iter()
+            .map(|(name, p)| (p.internal_port, name.clone()))
+            .collect();
+
+        let port_bindings = get_container_port_bindings(&container_id)?
+            .into_iter()
+            .map(|p| (port_to_names.get(&p.internal_port()).unwrap().clone(), p))
+            .collect();
+
         Ok(Process {
             process: Some(process),
             container_id,
             stdout_thread: Some(stdout_thread),
             stderr_thread: Some(stderr_thread),
+            ports: port_bindings,
             exit_signal: self.exit_signal,
         })
     }
@@ -387,8 +414,7 @@ impl ProcessBuilder {
 
 #[derive(Copy, Clone, Debug)]
 pub struct PortBinding {
-    internal_port: u16,
-    protocol: PortProtocol,
+    internal_port: InternalPort,
     interface: IpAddr,
     external_port: u16,
 }
@@ -400,7 +426,7 @@ impl PortBinding {
         let internal_port_str = parts[0];
         let protocol_str = parts[1];
 
-        let internal_port = internal_port_str
+        let internal_port: u16 = internal_port_str
             .parse()
             .expect("Docker has correct format.");
         let protocol = PortProtocol::from_str(protocol_str);
@@ -414,19 +440,17 @@ impl PortBinding {
         let external_port = host_port_str.parse().unwrap();
 
         PortBinding {
-            internal_port,
-            protocol,
+            internal_port: InternalPort {
+                port: internal_port,
+                protocol,
+            },
             interface,
             external_port,
         }
     }
 
-    pub fn internal_port(&self) -> u16 {
+    fn internal_port(&self) -> InternalPort {
         self.internal_port
-    }
-
-    pub fn protocol(&self) -> PortProtocol {
-        self.protocol
     }
 
     pub fn interface(&self) -> &IpAddr {
@@ -451,62 +475,67 @@ pub struct Process {
     container_id: String,
     stdout_thread: Option<JoinHandle<()>>,
     stderr_thread: Option<JoinHandle<()>>,
+    ports: HashMap<String, PortBinding>,
     exit_signal: Signal,
+}
+
+fn run_docker_command<F>(config_func: F) -> io::Result<Output>
+where
+    F: FnOnce(&mut Command),
+{
+    let mut cmd = Command::new("docker");
+    config_func(&mut cmd);
+    cmd.stdin(ProcStdio::null())
+        .stdout(ProcStdio::piped())
+        .stderr(ProcStdio::piped())
+        .output()
+}
+
+pub fn get_container_port_bindings(container_id: &str) -> Result<Vec<PortBinding>, Error> {
+    let output = run_docker_command(|cmd| {
+        cmd.arg("container")
+            .arg("inspect")
+            .args(&["--format", "{{json .NetworkSettings.Ports}}"])
+            .arg(container_id);
+    })?;
+
+    if !output.status.success() {
+        return Err(Error::CommandFailed(output.status.clone()));
+    }
+
+    let bindings = serde_json::from_slice::<BTreeMap<String, serde_json::Value>>(&output.stdout)
+        .expect("Docker should produce valid json");
+
+    Ok(bindings
+        .into_iter()
+        .filter_map(|(k, v)| {
+            if v.is_null() {
+                None
+            } else {
+                Some(serde_json::from_value::<Vec<PortBindingInner>>(v).map(move |bind| (k, bind)))
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap()
+        .into_iter()
+        .flat_map(|(k, v)| {
+            v.into_iter()
+                .map(|inner_binding| (k.clone(), inner_binding))
+                .collect::<Vec<_>>()
+        })
+        .map(|(k, inner_binding)| {
+            PortBinding::from_inner_binding(&k, &inner_binding.host_ip, &inner_binding.host_port)
+        })
+        .collect())
 }
 
 impl Process {
     pub fn builder(image: impl AsRef<OsStr>) -> ProcessBuilder {
         ProcessBuilder::new(image)
     }
-    /// Return a list of [`PortBinding`s](PortBinding) for all ports that are bound to external
-    /// interfaces.
-    ///
-    /// This is especially useful for discovering the external port of bound ports where the
-    /// external port was not declared.
-    pub fn port_bindings(&self) -> Result<Vec<PortBinding>, Error> {
-        let output = self.run_docker_command(|cmd| {
-            cmd.arg("container")
-                .arg("inspect")
-                .args(&["--format", "{{json .NetworkSettings.Ports}}"])
-                .arg(&self.container_id);
-        })?;
 
-        if !output.status.success() {
-            return Err(Error::CommandFailed(output.status.clone()));
-        }
-
-        let bindings =
-            serde_json::from_slice::<BTreeMap<String, serde_json::Value>>(&output.stdout)
-                .expect("Docker should produce valid json");
-
-        Ok(bindings
-            .into_iter()
-            .filter_map(|(k, v)| {
-                if v.is_null() {
-                    None
-                } else {
-                    Some(
-                        serde_json::from_value::<Vec<PortBindingInner>>(v)
-                            .map(move |bind| (k, bind)),
-                    )
-                }
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap()
-            .into_iter()
-            .flat_map(|(k, v)| {
-                v.into_iter()
-                    .map(|inner_binding| (k.clone(), inner_binding))
-                    .collect::<Vec<_>>()
-            })
-            .map(|(k, inner_binding)| {
-                PortBinding::from_inner_binding(
-                    &k,
-                    &inner_binding.host_ip,
-                    &inner_binding.host_port,
-                )
-            })
-            .collect())
+    pub fn port_address(&self, name: &str) -> Option<PortBinding> {
+        self.ports.get(name).copied()
     }
 
     /// Returns an [`ExecBuilder`](ExecBuilder) that will run a program within the container.
@@ -594,27 +623,26 @@ impl ExecBuilder<'_> {
     }
 
     pub fn exec(&mut self) -> io::Result<Output> {
-        let mut cmd = Command::new("docker");
-        cmd.arg("exec").arg("-i");
-        if let Some(workdir) = &self.workdir {
-            cmd.arg("--workdir").arg(workdir.as_os_str());
-        }
-
-        for (k, v) in &self.env {
-            let mut var = OsString::new();
-            var.push(k);
-            var.push("=");
-            var.push(v);
-            cmd.arg("-e");
-            cmd.arg(&var);
-        }
-
-        cmd.arg(&self.process.container_id).arg(&self.binary);
-
-        for arg in &self.args {
-            cmd.arg(arg);
-        }
-
-        cmd.output()
+        self.process.run_docker_command(|cmd| {
+            cmd.arg("exec").arg("-i");
+            if let Some(workdir) = &self.workdir {
+                cmd.arg("--workdir").arg(workdir.as_os_str());
+            }
+    
+            for (k, v) in &self.env {
+                let mut var = OsString::new();
+                var.push(k);
+                var.push("=");
+                var.push(v);
+                cmd.arg("-e");
+                cmd.arg(&var);
+            }
+    
+            cmd.arg(&self.process.container_id).arg(&self.binary);
+    
+            for arg in &self.args {
+                cmd.arg(arg);
+            }
+        })
     }
 }

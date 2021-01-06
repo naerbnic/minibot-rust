@@ -10,7 +10,13 @@ impl TestMq {
     pub fn new() -> Result<Self, Error> {
         let proc = Process::builder("rabbitmq:3.8")
             .stdout(Stdio::new_line_waiter(&["Server startup complete;"]))
-            .port(5672, PortProtocol::Tcp, Ipv4Addr::LOCALHOST.into(), None)
+            .port(
+                "main",
+                5672,
+                PortProtocol::Tcp,
+                Ipv4Addr::LOCALHOST.into(),
+                None,
+            )
             .start()?;
         Ok(TestMq { _process: proc })
     }

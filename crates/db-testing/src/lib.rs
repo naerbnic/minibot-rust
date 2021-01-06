@@ -18,22 +18,14 @@ pub struct TestDb {
 impl TestDb {
     pub fn new_docker() -> anyhow::Result<Self> {
         let process = Process::builder("postgres:13")
-            .port(5432, PortProtocol::Tcp, Ipv4Addr::LOCALHOST.into(), None)
+            .port("main", 5432, PortProtocol::Tcp, Ipv4Addr::LOCALHOST.into(), None)
             .env("POSTGRES_PASSWORD", "postgres")
             .stdout(Stdio::new_line_waiter(&["ready for start up"]))
             .exit_signal(Signal::Quit)
             .start()?;
 
         // Wait for the database to be ready
-        let mut ext_port = None;
-        for port in process.port_bindings()? {
-            if port.internal_port() == 5432 {
-                ext_port = Some(port.external_port());
-                break;
-            }
-        }
-
-        let ext_port = ext_port.unwrap();
+        let ext_port = process.port_address("main").unwrap().external_port();
 
         log::info!("Database started at port {}", ext_port);
 
