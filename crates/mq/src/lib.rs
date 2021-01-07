@@ -14,11 +14,11 @@ use uuid::Uuid;
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("Other error: {0}")]
-    Other(Box<dyn std::error::Error + Send + 'static>),
+    Other(Box<dyn std::error::Error + Send + Sync + 'static>),
 }
 
 impl Error {
-    pub fn new_other<E: std::error::Error + Send + 'static>(err: E) -> Self {
+    pub fn new_other<E: std::error::Error + Send + Sync + 'static>(err: E) -> Self {
         Error::Other(Box::new(err))
     }
 }
@@ -39,12 +39,15 @@ impl MessageSource {
 pub struct Message(Vec<u8>);
 
 impl Message {
+    pub fn new(data: &[u8]) -> Self {
+        Message(data.to_vec())
+    }
     pub fn data(&self) -> &[u8] {
         &self.0
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct QueueId(Uuid);
 
 impl QueueId {
@@ -172,7 +175,6 @@ impl Broker {
         let new_id = QueueId::new();
         let queue_name = new_id.queue_name();
         let opts = QueueDeclareOptions {
-            auto_delete: true,
             ..Default::default()
         };
         let mut fields = FieldTable::default();
@@ -232,7 +234,7 @@ impl Broker {
         })
     }
 
-    pub async fn send_message(&self, source: MessageSource, msg: Message) -> Result<(), Error> {
+    pub async fn send_message(&self, source: &MessageSource, msg: Message) -> Result<(), Error> {
         let channel = self.create_channel().await?;
         let routing_key = source.to_routing_key();
 
@@ -249,6 +251,6 @@ impl Broker {
             .await
             .map_err(Error::new_other)?;
 
-        todo!()
+        Ok(())
     }
 }
