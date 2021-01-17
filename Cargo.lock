@@ -1615,6 +1615,7 @@ name = "minibot-mq"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "docker-proc",
  "futures",
  "lapin",
