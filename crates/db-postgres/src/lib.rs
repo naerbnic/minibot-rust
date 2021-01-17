@@ -4,7 +4,8 @@ pub use futures;
 
 /// A helper function for writing transaction functions. Captured variables are listed, then a
 /// simple function is written. This creates the required clones of the captured variables.
-/// The return type of the function can be declared. Captured variables must implement `Clone`.
+/// The return type of the function can be declared. The function must be declared `move`, or
+/// the captured variables must implement `Clone`.
 #[macro_export]
 macro_rules! tx_func {
     ([$($clones:ident),*], |$tx:ident| -> $out:ty $body:block) => {
@@ -18,8 +19,23 @@ macro_rules! tx_func {
             }
         }
     };
+    ([$($clones:ident),*], move |$tx:ident| -> $out:ty $body:block) => {
+        {
+            move |$tx| {
+                $(let $clones = ::std::clone::Clone::clone(&$clones);)*
+                let boxed_fut: $crate::futures::future::BoxFuture<'_, $out> =
+                    $crate::futures::future::FutureExt::boxed(async move {$body});
+                boxed_fut
+            }
+        }
+    };
+
     ([$($clones:ident),*], |$tx:ident| $body:expr) => {
         tx_func!([$($clones),*], |$tx| -> _ {$body})
+    };
+    
+    ([$($clones:ident),*], move |$tx:ident| $body:expr) => {
+        tx_func!([$($clones),*], move |$tx| -> _ {$body})
     };
 
     ([$($clones:ident,)*], |$tx:ident| -> $out:ty $body:block) => {
@@ -29,10 +45,24 @@ macro_rules! tx_func {
         tx_func!([$($clones),*], |$tx| $body)
     };
 
+    ([$($clones:ident,)*], move |$tx:ident| -> $out:ty $body:block) => {
+        tx_func!([$($clones),*], move |$tx| -> $out $body)
+    };
+    ([$($clones:ident,)*], move |$tx:ident| $body:expr) => {
+        tx_func!([$($clones),*], move |$tx| $body)
+    };
+
     (|$tx:ident| $body:expr) => {
         tx_func!(|$tx| -> _ {$body})
     };
     (|$tx:ident| -> $out:ty $body:block) => {
+        tx_func!([], |$tx| -> $out $body)
+    };
+
+    (move |$tx:ident| $body:expr) => {
+        tx_func!(|$tx| -> _ {$body})
+    };
+    (move |$tx:ident| -> $out:ty $body:block) => {
         tx_func!([], |$tx| -> $out $body)
     };
 }
