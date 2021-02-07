@@ -1,6 +1,6 @@
 mod migrations;
 
-use minibot_config::{PgDbType, PgUserType};
+use minibot_config::{PgDbType, PgUserType, PostgresDev};
 use std::borrow::Cow;
 use std::ffi::OsString;
 use std::process::Command;
@@ -29,6 +29,8 @@ enum DevCommand {
     PgSql,
     /// Applies migrations to the database.
     ApplyMigrations,
+    /// Resets the database by dropping, creating, then resetting the database.
+    PgResetDb,
 }
 
 fn new_cargo_run_command<'a>(
@@ -64,6 +66,30 @@ fn spawn_cargo_run_server<'a>(
     let mut cmd = new_cargo_run_command(package, bin);
     config(&mut cmd);
     spawn_server(cmd)
+}
+
+fn create_db(pg: &PostgresDev) {
+    run_command("createdb", |cmd| {
+        cmd.env("PGPASSWORD", &pg.admin_user.password)
+            .env("PGDATABASE", &pg.db_name)
+            .env("PGHOST", &pg.hostname)
+            .env("PGPORT", pg.port.to_string())
+            .env("PGUSER", &pg.admin_user.username)
+            .args(&["--owner", &pg.client_user.username])
+            .arg("--no-password");
+    });
+}
+
+fn drop_db(pg: &PostgresDev) {
+    run_command("dropdb", |cmd| {
+        cmd.env("PGPASSWORD", &pg.admin_user.password)
+            .env("PGHOST", &pg.hostname)
+            .env("PGPORT", pg.port.to_string())
+            .env("PGUSER", &pg.admin_user.username)
+            .arg("--no-password")
+            .arg("--interactive")
+            .arg(&pg.db_name);
+    });
 }
 
 fn main() {
@@ -103,31 +129,8 @@ fn main() {
             server_thread.join().unwrap();
         }
 
-        DevCommand::PgCreateDb => {
-            run_command("createdb", |cmd| {
-                let pg = &config.postgres;
-                cmd.env("PGPASSWORD", &pg.admin_user.password)
-                    .env("PGDATABASE", &pg.db_name)
-                    .env("PGHOST", &pg.hostname)
-                    .env("PGPORT", pg.port.to_string())
-                    .env("PGUSER", &config.postgres.admin_user.username)
-                    .args(&["--owner", &config.postgres.client_user.username])
-                    .arg("--no-password");
-            });
-        }
-
-        DevCommand::PgDropDb => {
-            run_command("dropdb", |cmd| {
-                let pg = &config.postgres;
-                cmd.env("PGPASSWORD", &pg.admin_user.password)
-                    .env("PGHOST", &pg.hostname)
-                    .env("PGPORT", pg.port.to_string())
-                    .env("PGUSER", &config.postgres.admin_user.username)
-                    .arg("--no-password")
-                    .arg("--interactive")
-                    .arg(&pg.db_name);
-            });
-        }
+        DevCommand::PgCreateDb => create_db(&config.postgres),
+        DevCommand::PgDropDb => drop_db(&config.postgres),
 
         DevCommand::PgSql => run_command("psql", |cmd| {
             let pg = &config.postgres;
@@ -143,5 +146,16 @@ fn main() {
                 .db_config(PgUserType::Client, PgDbType::Main)
                 .connection_url(),
         ),
+
+        DevCommand::PgResetDb => {
+            drop_db(&config.postgres);
+            create_db(&config.postgres);
+            migrations::apply_migrations(
+                &config
+                    .postgres
+                    .db_config(PgUserType::Client, PgDbType::Main)
+                    .connection_url(),
+            );
+        }
     }
 }
