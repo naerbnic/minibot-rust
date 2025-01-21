@@ -10,7 +10,7 @@ edition = "2018"
 anyhow = "1.0.37"
 async-trait = "0.1.42"
 futures = "0.3.8"
-lapin = "1.6.6"
+lapin = "2.5"
 thiserror = "1.0.23"
 uuid = { version = "0.8.1", features = ["v4"] }
 

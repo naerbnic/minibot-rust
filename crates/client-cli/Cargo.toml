@@ -10,7 +10,7 @@ edition = "2018"
 minibot-client = { path = "../client" }
 webbrowser = "0.8.3"
 tokio = { version = "1.18.5", features = ["macros"] }
-reqwest = "0.10.4"
+reqwest = "0.12"
 url = "2.1.1"
 anyhow = "1.0.28"
-clap = "2.33.0"
+clap = "4"

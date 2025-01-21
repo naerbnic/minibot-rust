@@ -10,9 +10,8 @@ edition = "2018"
 thiserror = "1.0.11"
 futures = "0.3.4"
 tokio = { version = "1.18.5", features = ["net", "io-util", "time"] }
-tokio-tls = "0.3.0"
-native-tls = "0.2.3"
-tokio-util = { version = "0.3.0", features = ["compat", "codec"] }
+tokio-rustls = "0.26"
+tokio-util = { version = "0.7", features = ["compat", "codec"] }
 bytes = "0.5.4"
 async-trait = "0.1.26"
 byte_string = "1.0.0"
