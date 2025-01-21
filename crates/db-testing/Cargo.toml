@@ -20,4 +20,4 @@ tempdir = "0.3.7"
 thiserror = "1.0.22"
 
 [dev-dependencies]
-tokio = {version = "0.2", features = ["macros", "signal", "rt-threaded"]}
+tokio = {version = "1.18.5", features = ["macros", "signal"]}

@@ -9,7 +9,7 @@ edition = "2018"
 [dependencies]
 thiserror = "1.0.11"
 futures = "0.3.4"
-tokio = { version = "0.2.12", features = ["net", "io-util", "time"] }
+tokio = { version = "1.18.5", features = ["net", "io-util", "time"] }
 tokio-tls = "0.3.0"
 native-tls = "0.2.3"
 tokio-util = { version = "0.3.0", features = ["compat", "codec"] }
@@ -22,5 +22,5 @@ async-native-tls = "0.3.3"
 
 [dev-dependencies]
 anyhow = "1.0.27"
-tokio = { version = "0.2.12", features = ["macros"] }
+tokio = { version = "1.18.5", features = ["macros"] }
 devsecrets = { git = "https://github.com/naerbnic/devsecrets", version = "0.1.0-dev1" }

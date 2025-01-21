@@ -14,5 +14,5 @@ chrono = "0.4.19"
 futures = "0.3.8"
 rand = "0.7.3"
 thiserror = "1.0.22"
-tokio = "0.2"
+tokio = "1.18.5"
 tokio-postgres = {version = "0.5", features = ["with-chrono-0_4"]}

@@ -9,7 +9,7 @@ edition = "2018"
 [dependencies]
 minibot-client = { path = "../client" }
 webbrowser = "0.5.2"
-tokio = { version = "0.2.16", features = ["macros"] }
+tokio = { version = "1.18.5", features = ["macros"] }
 reqwest = "0.10.4"
 url = "2.1.1"
 anyhow = "1.0.28"
